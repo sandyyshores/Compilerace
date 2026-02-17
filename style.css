@@ -1,0 +1,621 @@
+:root {
+    --bg: #0d1117;
+    --sidebar-bg: #161b22;
+    --accent: #4ade80;
+    --accent-glow: rgba(74, 222, 128, 0.2);
+    --border: rgba(255, 255, 255, 0.1);
+    --text: #c9d1d9;
+    --syntax-keyword: var(--accent);
+    --syntax-string: #a5d6ff;
+    --syntax-comment: #8b949e;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* UI COMPONENTS */
+.app-header {
+    background: var(--sidebar-bg);
+    padding: 1rem 2rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.logo span { color: var(--accent);
+    font-weight:bold;
+    animation:pulse-glow 2s infinite ease-in-out;
+ }
+
+#colorPicker { visibility: hidden; width: 0; position: absolute; }
+.customize-btn {
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: bold;
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.05);
+    transition: all 0.2s;
+}
+
+.customize-btn:hover {
+    border-color: var(--accent);
+    box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.main-container {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    flex-grow: 1;
+}
+
+.sidebar {
+    background: var(--sidebar-bg);
+    padding: 2rem;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+}
+
+.card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    padding: 1.2rem;
+    border-radius: 12px;
+    margin-bottom: 1.5rem;
+}
+
+.label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    font-weight: 800;
+    color: #57606a;
+    display: block;
+    margin-bottom: 8px;
+}
+
+.console-box {
+    background: #000;
+    padding: 0.8rem;
+    border-radius: 6px;
+    color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+    text-shadow: 0 0 5px var(--accent-glow);
+}
+
+/* EDITOR ENGINE */
+.editor-pane {
+    position: relative;
+    padding: 3rem;
+    flex-grow: 1;
+    display: flex;
+}
+
+.editor-window {
+    width: 100%;
+    height: 100%;
+    background: rgba(13, 17, 23, 0.95);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    position: relative;
+    z-index: 1;
+}
+
+.window-header {
+    display: flex;
+    align-items: center;
+    padding: 0.8rem 1.2rem;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,0,0,0.3);
+}
+
+.dot { width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; }
+.red { background: #ff5f56; }
+.yellow { background: #ffbd2e; }
+.green { background: #27c93f; }
+
+.window-title { margin-left: 1rem; font-size: 0.8rem; opacity: 0.5; font-family: 'JetBrains Mono', monospace; }
+
+.editor-container {
+    position: relative;
+    flex-grow: 1;
+    overflow: hidden;
+}
+
+/* PIXEL-PERFECT LAYER SYNCING */
+#editor, #highlight-layer {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    padding: 2rem !important; /* Identical Padding */
+    margin: 0;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 1.1rem !important;
+    line-height: 1.6 !important; /* Fixed line height for alignment */
+    
+    /* NO SIDE SCROLLING FEATURE */
+    white-space: pre-wrap !important;
+    word-wrap: break-word !important;
+    overflow-x: hidden !important; 
+    overflow-y: auto;
+    
+    border: none;
+    outline: none;
+    tab-size: 4;
+}
+
+#editor {
+    background: transparent;
+    color: transparent !important;
+    caret-color: var(--accent);
+    z-index: 3;
+    resize: none;
+}
+
+#highlight-layer {
+    z-index: 2;
+    pointer-events: none;
+    background: transparent;
+}
+
+#highlight-content {
+    font-family: inherit !important;
+    font-size: inherit !important;
+    line-height: inherit !important;
+}
+
+/* ANIMATIONS */
+@keyframes pulse-glow {
+    0% { text-shadow: 0 0 5px var(--accent-glow); }
+    50% { text-shadow: 0 0 18px var(--accent-glow), 0 0 5px var(--accent); }
+    100% { text-shadow: 0 0 5px var(--accent-glow); }
+}
+
+@keyframes timer-glow {
+    0%, 100% {
+        transform: translate(-50%, -50%) scale(1);
+        text-shadow: 0 0 20px var(--accent-glow);
+    }
+    50% {
+        transform: translate(-50%, -50%) scale(1.03);
+        text-shadow: 0 0 60px var(--accent), 0 0 120px var(--accent-glow);
+    }
+}
+
+
+/* SYNTAX TOKENS */
+.token.keyword { 
+    color: var(--accent); 
+    font-weight: bold;
+    animation: pulse-glow 2s infinite ease-in-out; 
+    transition: color 0.3s ease;
+}
+
+.token.string { 
+    color: var(--syntax-string); 
+    text-shadow: 0 0 5px rgba(165, 214, 255, 0.3);
+}
+
+.token.comment { color: var(--syntax-comment); }
+
+/* UI FEEDBACK */
+.bg-timer {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 20vw;
+    font-weight: 900;
+    color: var(--accent);
+
+    opacity: 0.35;   /* Slightly brighter */
+
+    text-shadow:
+        0 0 12px var(--accent),
+        0 0 30px var(--accent),
+        0 0 70px var(--accent-glow);
+
+    filter: saturate(1.2) brightness(1.1); /* makes color pop */
+
+    pointer-events: none;
+    z-index: 2;
+}
+
+
+.pulse-active {
+    animation: timer-glow 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.btn-primary {
+    background: var(--accent);
+    border: none;
+    padding: 1rem;
+    font-weight: 900;
+    border-radius: 10px;
+    cursor: pointer;
+    color: #0d1117;
+    transition: all 0.2s;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.btn-primary::before { content: "🚀 Submit Code"; font-size: 1rem; }
+.btn-text, .btn-hint { display: none; } /* Cleaning up the original text for cleaner icons */
+.btn-primary::after { content: "Ctrl + Enter"; font-size: 0.65rem; opacity: 0.7; margin-top: 2px; }
+
+.btn-primary:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 0 15px var(--accent-glow);
+}
+
+.btn-secondary {
+    padding: 0.8rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: #57606a;
+    cursor: pointer;
+    margin-top: 10px;
+    font-weight: bold;
+}
+.btn-secondary::before { content: "🔄 "; }
+
+
+.toast {
+    position: fixed;
+    bottom: 30px; right: 30px;
+    background: #1c2128;
+    color: white;
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    border-left: 5px solid var(--accent);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    z-index: 1000;
+}
+
+.shake { animation: shake 0.3s ease-in-out; }
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-10px); }
+    75% { transform: translateX(10px); }
+}
+
+/* Scrollbar styling for a cleaner look */
+#editor::-webkit-scrollbar { width: 8px; }
+#editor::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+#editor::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+/* Toast fade animation */
+.toast {
+    transition: opacity 0.3s ease, transform 0.2s ease;
+    opacity: 0;
+    transform: translateY(10px);
+}
+.toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Caret glow while typing */
+#editor:focus {
+    text-shadow: 0 0 8px var(--accent-glow);
+}
+
+/* ===============================
+   BUTTON ICON + UI POLISH (ADD-ON)
+   Paste at bottom of style.css
+================================= */
+
+/* Better spacing between buttons (no need for margin-top hacks) */
+.button-group{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+}
+
+/* Shared polish */
+.btn-primary, .btn-secondary{
+    width:100%;
+    border-radius:14px;
+    transition: transform .15s ease, box-shadow .2s ease, filter .2s ease, border-color .2s ease, background .2s ease;
+}
+
+/* Primary: deeper, more premium */
+.btn-primary{
+    position:relative;
+    overflow:hidden;
+    box-shadow: 0 10px 25px rgba(0,0,0,.35);
+}
+
+.btn-primary:hover{
+    transform: translateY(-1px);
+    box-shadow: 0 0 18px var(--accent-glow), 0 14px 28px rgba(0,0,0,.45);
+}
+
+.btn-primary:active{
+    transform: translateY(0);
+    filter: brightness(0.98);
+}
+
+/* Make the “🚀 Submit Code” line feel like a proper icon+label row */
+.btn-primary::before{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+    line-height:1.1;
+}
+
+/* Secondary: turn it into a clean ghost button */
+.btn-secondary{
+    margin-top:0; /* gap handles spacing now */
+    color: var(--text);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.14);
+    box-shadow: 0 8px 18px rgba(0,0,0,.20);
+}
+
+.btn-secondary:hover{
+    transform: translateY(-1px);
+    border-color: rgba(255,255,255,0.24);
+    background: rgba(255,255,255,0.05);
+    box-shadow: 0 10px 25px rgba(0,0,0,.28);
+}
+
+.btn-secondary:active{
+    transform: translateY(0);
+}
+
+/* Make Restart look like: [icon badge] Restart */
+.btn-secondary{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+}
+
+/* Override your existing restart icon to remove trailing space */
+.btn-secondary::before{
+    content:"🔄";
+    width:32px;
+    height:32px;
+    border-radius:10px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.14);
+    box-shadow: 0 6px 18px rgba(0,0,0,.25);
+
+    /* Optional: make icon match accent vibe */
+    color: var(--accent);
+    text-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* Make sure the restart text looks crisp */
+.btn-secondary{
+    font-weight: 800;
+    letter-spacing: .2px;
+}
+/* ===============================
+   BORDER TRACE WHILE TYPING
+   =============================== */
+
+/* We’ll draw animated “lines” using 4 background gradients on a pseudo-element */
+.editor-window{
+  --trace: 0;                 /* 0 -> 1 progress */
+  --trace-w: 2px;             /* line thickness */
+  --trace-alpha: 0.55;        /* line visibility */
+}
+
+/* The tracing lines */
+.editor-window::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  border-radius:12px;         /* match your editor window radius */
+  pointer-events:none;
+  z-index:4;                  /* above window bg, below textarea */
+  opacity:0;
+  transition: opacity .25s ease, filter .25s ease;
+transition: background-size .25s cubic-bezier(.25,.8,.25,1), opacity .2s ease;
+
+  /* 4 lines: top, right, bottom, left */
+  background:
+    linear-gradient(var(--accent), var(--accent)) top left,
+    linear-gradient(var(--accent), var(--accent)) top right,
+    linear-gradient(var(--accent), var(--accent)) bottom right,
+    linear-gradient(var(--accent), var(--accent)) bottom left;
+
+  background-repeat:no-repeat;
+
+  /* size controlled by --trace */
+  background-size:
+    calc(var(--trace) * 100%) var(--trace-w),   /* top */
+    var(--trace-w) calc(var(--trace) * 100%),   /* right */
+    calc(var(--trace) * 100%) var(--trace-w),   /* bottom */
+    var(--trace-w) calc(var(--trace) * 100%);   /* left */
+
+  /* glow */
+  filter: drop-shadow(0 0 10px var(--accent-glow));
+}
+
+/* When user is typing: show tracing */
+.editor-window.is-typing::before{
+  opacity: var(--trace-alpha);
+}
+
+/* When complete: trace becomes full box smoothly */
+.editor-window.is-complete{
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 20px var(--accent-glow) !important;
+}
+
+/* Optional: make the trace fade a bit on completion (feels smoother) */
+.editor-window.is-complete::before{
+  opacity: 0.25;
+  filter: drop-shadow(0 0 18px var(--accent-glow));
+}
+/* ===============================
+   VICTORY ANIMATION (OVERLAY + CONFETTI)
+================================= */
+
+.victory-overlay{
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(1.02);
+  transition: opacity .25s ease, transform .25s ease;
+  z-index: 2000;
+}
+
+.victory-overlay.show{
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Soft background + vignette */
+.victory-overlay::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(255,255,255,0.06), rgba(0,0,0,0.72) 60%),
+    radial-gradient(circle at 50% 50%, rgba(0,0,0,0.25), rgba(0,0,0,0.85));
+  backdrop-filter: blur(6px);
+}
+
+/* The victory card */
+.victory-card{
+  position: relative;
+  width: min(560px, 92vw);
+  padding: 26px 26px 22px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(13,17,23,0.78);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.04) inset,
+    0 25px 80px rgba(0,0,0,0.65),
+    0 0 50px var(--accent-glow);
+  transform: translateY(10px) scale(0.96);
+  opacity: 0;
+  animation: victory-pop .55s cubic-bezier(.2,1,.25,1) forwards;
+}
+
+@keyframes victory-pop{
+  0% { opacity: 0; transform: translateY(12px) scale(0.95); filter: blur(2px); }
+  60% { opacity: 1; transform: translateY(-2px) scale(1.02); filter: blur(0px); }
+  100% { opacity: 1; transform: translateY(0px) scale(1); }
+}
+
+/* Glow ring burst */
+.victory-ring{
+  position:absolute;
+  inset:-14px;
+  border-radius: 22px;
+  pointer-events:none;
+  border: 2px solid rgba(255,255,255,0.06);
+  box-shadow: 0 0 0 0 rgba(0,0,0,0);
+  animation: ring-burst .9s ease forwards;
+}
+
+@keyframes ring-burst{
+  0% { opacity: 0; transform: scale(0.95); box-shadow: 0 0 0 0 var(--accent-glow); }
+  35% { opacity: 1; transform: scale(1.02); box-shadow: 0 0 45px 8px var(--accent-glow); }
+  100% { opacity: .7; transform: scale(1); box-shadow: 0 0 65px 12px var(--accent-glow); }
+}
+
+.victory-title{
+  font-family: 'Inter', sans-serif;
+  font-weight: 900;
+  font-size: 28px;
+  margin: 0 0 8px;
+  color: white;
+}
+
+.victory-title span{
+  color: var(--accent);
+  text-shadow: 0 0 12px var(--accent-glow);
+}
+
+.victory-sub{
+  margin: 0 0 18px;
+  opacity: .85;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+}
+
+.victory-stats{
+  display:grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.victory-pill{
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+
+.victory-pill .k{
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  opacity: .65;
+}
+
+.victory-pill .v{
+  margin-top: 6px;
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--accent);
+  text-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* Confetti */
+.confetti{
+  position:absolute;
+  inset:0;
+  overflow:hidden;
+  pointer-events:none;
+}
+
+.confetti span{
+  position:absolute;
+  top: -12px;
+  width: 10px;
+  height: 14px;
+  border-radius: 3px;
+  opacity: 0.95;
+  background: var(--accent);
+  box-shadow: 0 0 14px var(--accent-glow);
+  animation: confetti-fall var(--d, 1200ms) linear forwards;
+  transform: translateY(-20px) rotate(0deg);
+}
+
+@keyframes confetti-fall{
+  to{
+    transform: translateY(110vh) rotate(720deg);
+    opacity: 0.9;
+  }
+}

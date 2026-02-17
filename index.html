@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CompileRace</title>
+    <link rel="stylesheet" href="style.css" />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="app-header">
+    <h1 class="logo">Compile<span>Race</span></h1>
+    <div class="header-controls">
+        <label for="colorPicker" class="customize-btn">🎨 Customize</label>
+        <input type="color" id="colorPicker" value="#4ade80">
+    </div>
+</div>
+
+<div class="main-container">
+    <aside class="sidebar">
+        <div class="card">
+            <span class="label">Objective</span>
+            <p>Complete the Java program to print <b>Hello World</b>.</p>
+        </div>
+        
+        <div class="card">
+            <span class="label">Expected Output</span>
+            <div class="console-box"><code>Hello World</code></div>
+        </div>
+
+        <div class="button-group">
+            <button id="runBtn" class="btn-primary"></button>
+            <button class="btn-secondary" id="restartBtn">Restart</button>
+        </div>
+    </aside>
+
+    <main class="editor-pane">
+        <div class="bg-timer" id="bg-timer">0</div>
+        <div class="editor-window">
+            <div class="window-header">
+                <div class="window-dots">
+                    <span class="dot red"></span>
+                    <span class="dot yellow"></span>
+                    <span class="dot green"></span>
+                </div>
+                <div class="window-title">Main.java</div>
+            </div>
+            <div class="editor-container">
+                <pre id="highlight-layer" aria-hidden="true"><code id="highlight-content"></code></pre>
+                <textarea id="editor" spellcheck="false" autocomplete="off" placeholder="Start typing...">public class Main {
+    public static void main(String[] args) {
+        
+    }
+}</textarea>
+            </div>
+        </div>
+    </main>
+</div>
+
+<div id="output-toast" class="toast">Ready? Start typing.</div>
+
+<script src="script.js"></script>
+</body>
+</html>
