@@ -1,65 +1,110 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CompileRace</title>
-    <link rel="stylesheet" href="style.css" />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CompileRace</title>
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
 </head>
 <body>
 
 <div class="app-header">
-    <h1 class="logo">Compile<span>Race</span></h1>
-    <div class="header-controls">
-        <label for="colorPicker" class="customize-btn">🎨 Customize</label>
-        <input type="color" id="colorPicker" value="#4ade80">
+  <h1 class="logo">Compile<span>Race</span></h1>
+  
+  <span class="header-badge">⚡ Java Speed Coding</span>
+</div>
+
+<div class="home-wrap">
+  <div class="home-card">
+    <div class="home-hero">
+      <h2>Pick a Challenge</h2>
+      <p class="muted">Write Java as fast as you can. All tests must pass. Beat your best time.</p>
     </div>
+
+    <div class="filter-bar">
+      <button class="filter-btn a ctive" data-filter="all">All</button>
+      <button class="filter-btn" data-filter="Easy">🟢 Easy</button>
+      <button class="filter-btn" data-filter="Medium">🟡 Medium</button>
+      <button class="filter-btn" data-filter="Hard">🔴 Hard</button>
+    </div>
+
+    <div class="slider-wrap">
+      <button class="slider-btn left" id="slideLeft" aria-label="Scroll left">‹</button>
+      <div class="slider" id="challengeSlider"></div>
+      <button class="slider-btn right" id="slideRight" aria-label="Scroll right">›</button>
+    </div>
+
+    <div class="home-footer">
+      <span class="muted">Tip: Press <kbd>Ctrl+Enter</kbd> to submit.</span>
+      <span class="muted" id="questionCount"></span>
+    </div>
+  </div>
 </div>
 
-<div class="main-container">
-    <aside class="sidebar">
-        <div class="card">
-            <span class="label">Objective</span>
-            <p>Complete the Java program to print <b>Hello World</b>.</p>
-        </div>
-        
-        <div class="card">
-            <span class="label">Expected Output</span>
-            <div class="console-box"><code>Hello World</code></div>
-        </div>
+<script src="questions.js"></script>
+<script>
+  const slider = document.getElementById("challengeSlider");
+  const leftBtn = document.getElementById("slideLeft");
+  const rightBtn = document.getElementById("slideRight");
+  const countEl = document.getElementById("questionCount");
+  const all = window.QUESTIONS || [];
 
-        <div class="button-group">
-            <button id="runBtn" class="btn-primary"></button>
-            <button class="btn-secondary" id="restartBtn">Restart</button>
-        </div>
-    </aside>
+  function getBestTime(id) {
+    const v = localStorage.getItem(`compileRaceBestTime::${id}`);
+    return v ? parseInt(v, 10) : null;
+  }
 
-    <main class="editor-pane">
-        <div class="bg-timer" id="bg-timer">0</div>
-        <div class="editor-window">
-            <div class="window-header">
-                <div class="window-dots">
-                    <span class="dot red"></span>
-                    <span class="dot yellow"></span>
-                    <span class="dot green"></span>
-                </div>
-                <div class="window-title">Main.java</div>
-            </div>
-            <div class="editor-container">
-                <pre id="highlight-layer" aria-hidden="true"><code id="highlight-content"></code></pre>
-                <textarea id="editor" spellcheck="false" autocomplete="off" placeholder="Start typing...">public class Main {
-    public static void main(String[] args) {
-        
+  function renderSlider(filter = "all") {
+    const filtered = filter === "all" ? all : all.filter(q => q.difficulty === filter);
+    countEl.textContent = `${filtered.length} challenge${filtered.length !== 1 ? "s" : ""}`;
+    slider.innerHTML = "";
+
+    if (!filtered.length) {
+      slider.innerHTML = `<div class="empty-state">No challenges yet for this difficulty.</div>`;
+      return;
     }
-}</textarea>
-            </div>
+
+    filtered.forEach((q) => {
+      const originalIdx = all.indexOf(q);
+      const diff = q.difficulty || "Easy";
+      const best = getBestTime(q.id);
+      const a = document.createElement("a");
+      a.className = "challenge-card";
+      a.href = `race.html?q=${originalIdx}`;
+      a.innerHTML = `
+        <div class="card-top">
+          <div class="cc-title">${q.title}</div>
+          <div class="pill pill-${diff.toLowerCase()}">${diff}</div>
         </div>
-    </main>
-</div>
+        <div class="cc-sub">${q.objective}</div>
+        <div class="cc-footer">
+          <div class="cc-best ${best ? '' : 'cc-best-empty'}">${best ? `🏆 Best: ${best}s` : 'Not attempted'}</div>
+          <div class="cc-cta">Start →</div>
+        </div>
+      `;
+      slider.appendChild(a);
+    });
+  }
 
-<div id="output-toast" class="toast">Ready? Start typing.</div>
+  function scrollByCards(dir) {
+    const card = slider.querySelector(".challenge-card");
+    if (!card) return;
+    slider.scrollBy({ left: dir * (card.getBoundingClientRect().width + 14), behavior: "smooth" });
+  }
 
-<script src="script.js"></script>
+  leftBtn.addEventListener("click", () => scrollByCards(-1));
+  rightBtn.addEventListener("click", () => scrollByCards(1));
+
+  document.querySelectorAll(".filter-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      renderSlider(btn.dataset.filter);
+    });
+  });
+
+  renderSlider();
+</script>
 </body>
 </html>
