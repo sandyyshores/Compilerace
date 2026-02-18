@@ -10,6 +10,11 @@
 <body>
 
 <div class="app-header">
+  <div class="header-controls">
+  <input type="color" id="colorPicker" />
+  <button class="customize-btn" id="customizeBtn">🎨 Customize</button>
+</div>
+
   <h1 class="logo">Compile<span>Race</span></h1>
   
   <span class="header-badge">⚡ Java Speed Coding</span>
@@ -23,7 +28,7 @@
     </div>
 
     <div class="filter-bar">
-      <button class="filter-btn a ctive" data-filter="all">All</button>
+      <button class="filter-btn active" data-filter="all">All</button>
       <button class="filter-btn" data-filter="Easy">🟢 Easy</button>
       <button class="filter-btn" data-filter="Medium">🟡 Medium</button>
       <button class="filter-btn" data-filter="Hard">🔴 Hard</button>
@@ -43,6 +48,32 @@
 </div>
 
 <script src="questions.js"></script>
+<script>
+  // Accent color persistence (Home + Race)
+  (function initAccentColor() {
+    const saved = localStorage.getItem("compileRaceAccent");
+    if (saved) {
+      document.documentElement.style.setProperty("--accent", saved);
+      document.documentElement.style.setProperty("--accent-glow", saved + "44");
+    }
+
+    const picker = document.getElementById("colorPicker");
+    const btn = document.getElementById("customizeBtn");
+    if (!picker) return;
+
+    picker.value = saved || "#4ade80";
+
+    picker.addEventListener("input", (e) => {
+      const c = e.target.value;
+      document.documentElement.style.setProperty("--accent", c);
+      document.documentElement.style.setProperty("--accent-glow", c + "44");
+      localStorage.setItem("compileRaceAccent", c);
+    });
+
+    if (btn) btn.addEventListener("click", () => picker.click());
+  })();
+</script>
+
 <script>
   const slider = document.getElementById("challengeSlider");
   const leftBtn = document.getElementById("slideLeft");
