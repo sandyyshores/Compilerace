@@ -639,11 +639,15 @@ function resumeTimer() {
 /* =========================
    CONTROLS
 ========================= */
-colorPicker.addEventListener("input", (e) => {
-  const c = e.target.value;
-  document.documentElement.style.setProperty("--accent", c);
-  document.documentElement.style.setProperty("--accent-glow", c + "44");
-});
+if (colorPicker) {
+  colorPicker.addEventListener("input", (e) => {
+    const c = e.target.value;
+    document.documentElement.style.setProperty("--accent", c);
+    document.documentElement.style.setProperty("--accent-glow", c + "44");
+    localStorage.setItem("compileRaceAccent", c);
+  });
+}
+
 
 runBtn.addEventListener("click", runCode);
 
@@ -717,3 +721,30 @@ function updateActiveLine() {
   activeLine.style.height = lineHeight + "px";
   activeLine.style.transform = `translateY(${y}px)`;
 }
+// ===============================
+// Accent color persistence (Home + Race)
+// ===============================
+(function initAccentColor() {
+  const saved = localStorage.getItem("compileRaceAccent");
+  if (saved) {
+    document.documentElement.style.setProperty("--accent", saved);
+    document.documentElement.style.setProperty("--accent-glow", saved + "44");
+  }
+
+  const picker = document.getElementById("colorPicker");
+  const btn = document.getElementById("customizeBtn");
+
+  if (picker) {
+    picker.value = saved || getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#4ade80";
+    picker.addEventListener("input", (e) => {
+      const c = e.target.value;
+      document.documentElement.style.setProperty("--accent", c);
+      document.documentElement.style.setProperty("--accent-glow", c + "44");
+      localStorage.setItem("compileRaceAccent", c);
+    });
+  }
+
+  if (btn && picker) {
+    btn.addEventListener("click", () => picker.click());
+  }
+})();
