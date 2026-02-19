@@ -272,6 +272,8 @@ editor.addEventListener(
    INPUT LISTENER (ONE ONLY)
 ========================= */
 editor.addEventListener("input", () => {
+
+  bgTimer.style.opacity="0.18";
   const newLength = editor.value.length;
   if (newLength > lastLength) totalCharsTyped += newLength - lastLength;
   lastLength = newLength;
@@ -298,6 +300,9 @@ editor.addEventListener("input", () => {
   updateHighlighting();
   updateWindowStats();
   updateActiveLine();
+});
+editor.addEventListener("blur", () => {
+  bgTimer.style.opacity = "0.25";
 });
 
 editor.addEventListener("click", updateActiveLine);
