@@ -1,45 +1,89 @@
 // ===============================
-// CompileRace — script.js
+// CompileRace — script.js (FIXED)
 // ===============================
 
+/* =========================
+   DOM
+========================= */
 const editor = document.getElementById("editor");
 const highlightContent = document.getElementById("highlight-content");
+const highlightLayer = document.getElementById("highlight-layer");
 const bgTimer = document.getElementById("bg-timer");
+
 const runBtn = document.getElementById("runBtn");
 const restartBtn = document.getElementById("restartBtn");
 const colorPicker = document.getElementById("colorPicker");
-const highlightLayer = document.getElementById("highlight-layer");
+
 const windowEl = document.querySelector(".editor-window");
 const objectiveText = document.getElementById("objectiveText");
 const sampleInputText = document.getElementById("sampleInputText");
 const sampleOutputText = document.getElementById("sampleOutputText");
+
 const testStatusCard = document.getElementById("testStatusCard");
 const testStatusList = document.getElementById("testStatusList");
 const windowStats = document.getElementById("windowStats");
 
-const JUDGE0_BASE = "https://ce.judge0.com";
+const homeBtn = document.getElementById("homeBtn");
 
-// Cache key for java language id so we don't keep hitting /languages (rate limit / CORS issues)
+/* =========================
+   CONFIG
+========================= */
+const JUDGE0_BASE = "https://ce.judge0.com";
 const JAVA_LANG_CACHE_KEY = "compileRace::javaLanguageId";
 
 /* =========================
-   TEMPLATE BUILDING
+   HELPERS
+========================= */
+function showToast(msg, color = "var(--accent)") {
+  const toast = document.getElementById("output-toast");
+  if (!toast) return;
+  toast.textContent = msg;
+  toast.style.borderLeftColor = color;
+  toast.classList.add("show");
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => toast.classList.remove("show"), 2800);
+}
+
+function escapeHtml(s) {
+  return (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function normalizeOut(s) {
+  // slightly forgiving: trims trailing spaces per line + overall trim
+  return (s ?? "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trim();
+}
+
+function insertTextAtSelection(text, mode = "end") {
+  const start = editor.selectionStart;
+  const end = editor.selectionEnd;
+  editor.setRangeText(text, start, end, mode); // preserves undo stack ✅
+}
+
+/* =========================
+   TEMPLATE + QUESTION LOAD
 ========================= */
 function buildStarterCode(q) {
   const template =
     window.JAVA_TEMPLATE ||
-    `import java.util.Scanner;\nclass Main{\n  public static void main(String[] args){\n    Scanner sc = new Scanner(System.in);\n    {{CODE}}\n  }\n}`;
+    `import java.util.Scanner;\nclass Main{\n  public static void main(String[] args){\n    Scanner sc = new Scanner(System.in);\n    {{CODE}}\n  }\n}\n`;
+
   const insert = (q.starterInsert || "// write your code here").trim();
   const indented = insert
     .split("\n")
     .map((l) => "    " + l)
     .join("\n");
+
   return template.replace("{{CODE}}", indented + "\n");
 }
 
-// ✅ Allows BOTH styles:
-// 1) user types only logic (snippet) -> we wrap it
-// 2) user types full program -> we send as-is
+// Allows BOTH styles:
+// 1) user types only logic snippet -> wrap it
+// 2) user types full program -> send as-is
 function prepareJavaSource(raw) {
   const code = (raw || "").trim();
 
@@ -50,8 +94,6 @@ function prepareJavaSource(raw) {
     /^\s*import\s+.+;/m.test(code);
 
   if (looksLikeFullProgram) return code;
-
-  // Wrap snippet into template
   return buildStarterCode({ starterInsert: code });
 }
 
@@ -79,11 +121,387 @@ function getSelectedQuestion() {
 const currentQuestion = getSelectedQuestion();
 const bestKey = `compileRaceBestTime::${currentQuestion.id}`;
 
+// Fill sidebar
 if (objectiveText) objectiveText.textContent = currentQuestion.objective || "";
 if (sampleInputText) sampleInputText.textContent = currentQuestion.sample?.input || "(none)";
 if (sampleOutputText) sampleOutputText.textContent = currentQuestion.sample?.output || "";
 
+// Set initial editor content
 editor.value = buildStarterCode(currentQuestion);
+
+/* =========================
+   ACTIVE LINE
+========================= */
+function updateActiveLine() {
+  const activeLine = document.getElementById("active-line");
+  if (!activeLine) return;
+
+  const start = editor.selectionStart || 0;
+  const before = editor.value.slice(0, start);
+  const lineIndex = before.split("\n").length - 1;
+
+  const styles = getComputedStyle(editor);
+  const lineHeight = parseFloat(styles.lineHeight) || 22;
+  const paddingTop = parseFloat(styles.paddingTop) || 0;
+
+  const y = paddingTop + lineIndex * lineHeight - editor.scrollTop;
+  activeLine.style.height = lineHeight + "px";
+  activeLine.style.transform = `translateY(${y}px)`;
+}
+
+/* =========================
+   SYNTAX HIGHLIGHTING
+========================= */
+function updateHighlighting() {
+  let code = escapeHtml(editor.value);
+
+  // Strings first
+  code = code.replace(/("(?:[^"\\]|\\.)*")/g, '<span class="token string">$1</span>');
+  // Comments
+  code = code.replace(/(\/\/[^\n]*)/g, '<span class="token comment">$1</span>');
+
+  // Keywords
+  const keywords =
+    /\b(public|private|protected|class|static|void|int|long|double|float|boolean|char|String|new|return|if|else|while|for|do|break|continue|import|Scanner|System|out|println|print|in|Math|Arrays|ArrayList|List|Map|HashMap|null|true|false|this|super|extends|implements|interface|try|catch|finally|throw|throws)\b/g;
+
+  const parts = code.split(/(<span[^>]*>[\s\S]*?<\/span>)/g);
+  code = parts
+    .map((part) => (part.startsWith("<span") ? part : part.replace(keywords, '<span class="token keyword">$1</span>')))
+    .join("");
+
+  // Numbers
+  const numParts = code.split(/(<span[^>]*>[\s\S]*?<\/span>)/g);
+  code = numParts
+    .map((part) => (part.startsWith("<span") ? part : part.replace(/\b(\d+)\b/g, '<span class="token number">$1</span>')))
+    .join("");
+
+  highlightContent.innerHTML = code;
+}
+
+/* =========================
+   WINDOW STATS
+========================= */
+function updateWindowStats() {
+  if (!windowStats) return;
+  const lines = editor.value.split("\n").length;
+  const chars = editor.value.length;
+  windowStats.textContent = `${lines} lines · ${chars} chars`;
+}
+
+/* =========================
+   TIMER + TRACE
+========================= */
+let startTime = null;
+let timerInterval = null;
+let finished = false;
+
+let totalCharsTyped = 0;
+let lastLength = editor.value.length;
+
+let currentTrace = 0;
+let targetTrace = 0;
+let traceRAF = null;
+
+const storedBest = localStorage.getItem(bestKey);
+let bestTime = storedBest ? parseInt(storedBest, 10) : null;
+
+function updateTraceProgress() {
+  const targetChars = 140;
+  targetTrace = Math.min(1, editor.value.length / targetChars);
+
+  if (editor.value.trim().length > 0) windowEl.classList.add("is-typing");
+  else {
+    windowEl.classList.remove("is-typing");
+    targetTrace = 0;
+  }
+
+  if (!traceRAF) animateTrace();
+}
+
+function animateTrace() {
+  traceRAF = requestAnimationFrame(animateTrace);
+  currentTrace += (targetTrace - currentTrace) * 0.12;
+  windowEl.style.setProperty("--trace", currentTrace.toString());
+
+  if (Math.abs(targetTrace - currentTrace) < 0.001) {
+    currentTrace = targetTrace;
+    windowEl.style.setProperty("--trace", currentTrace.toString());
+    cancelAnimationFrame(traceRAF);
+    traceRAF = null;
+  }
+}
+
+function resumeTimer() {
+  if (finished) return;
+  const elapsed = parseInt(bgTimer.textContent || "0", 10) * 1000;
+  startTime = Date.now() - elapsed;
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    if (finished) return;
+    bgTimer.textContent = Math.floor((Date.now() - startTime) / 1000).toString();
+  }, 500);
+}
+
+/* =========================
+   SCROLL MIRROR (FAST)
+========================= */
+let scrollRAF = null;
+let pendingTop = 0;
+let pendingLeft = 0;
+
+editor.addEventListener(
+  "scroll",
+  () => {
+    pendingTop = editor.scrollTop;
+    pendingLeft = editor.scrollLeft;
+
+    // active line should update on scroll too
+    updateActiveLine();
+
+    if (scrollRAF) return;
+    scrollRAF = requestAnimationFrame(() => {
+      highlightLayer.scrollTop = pendingTop;
+      highlightLayer.scrollLeft = pendingLeft;
+      scrollRAF = null;
+    });
+  },
+  { passive: true }
+);
+
+/* =========================
+   INPUT LISTENER (ONE ONLY)
+========================= */
+editor.addEventListener("input", () => {
+  const newLength = editor.value.length;
+  if (newLength > lastLength) totalCharsTyped += newLength - lastLength;
+  lastLength = newLength;
+
+  if (!finished) {
+    if (!startTime && editor.value.trim().length > 0) {
+      startTime = Date.now();
+      if (timerInterval) clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        if (finished) return;
+        const t = Math.floor((Date.now() - startTime) / 1000);
+        if (bgTimer.textContent !== t.toString()) {
+          bgTimer.textContent = t;
+          bgTimer.classList.remove("pulse-active");
+          void bgTimer.offsetWidth;
+          bgTimer.classList.add("pulse-active");
+        }
+      }, 500);
+      showToast("Race started! Go! 🚀", "var(--accent)");
+    }
+    updateTraceProgress();
+  }
+
+  updateHighlighting();
+  updateWindowStats();
+  updateActiveLine();
+});
+
+editor.addEventListener("click", updateActiveLine);
+editor.addEventListener("keyup", updateActiveLine);
+window.addEventListener("resize", updateActiveLine);
+
+/* =========================
+   KEYBOARD LOGIC (UNDO SAFE)
+========================= */
+editor.addEventListener("keydown", (e) => {
+  // Always allow undo/redo
+  if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) {
+    return;
+  }
+
+  if (finished) {
+    if (e.ctrlKey && e.key === "Enter") e.preventDefault();
+    return;
+  }
+
+  if (e.ctrlKey && e.key === "Enter") {
+    e.preventDefault();
+    runCode();
+    return;
+  }
+
+  const start = editor.selectionStart;
+
+  // Skip over closing chars
+  const closers = ["}", ")", "]", '"', "'"];
+  if (closers.includes(e.key) && editor.value[start] === e.key) {
+    e.preventDefault();
+    editor.selectionStart = editor.selectionEnd = start + 1;
+    updateActiveLine();
+    return;
+  }
+
+  // Auto-pair brackets
+  const pairs = { "{": "}", "(": ")", "[": "]" };
+  if (pairs[e.key]) {
+    e.preventDefault();
+    const caret = editor.selectionStart;
+    insertTextAtSelection(e.key + pairs[e.key], "end");
+    editor.selectionStart = editor.selectionEnd = caret + 1;
+    updateHighlighting();
+    updateWindowStats();
+    updateActiveLine();
+    return;
+  }
+
+  // Enter handling: indentation + between {}
+  if (e.key === "Enter") {
+    e.preventDefault();
+
+    const caret = editor.selectionStart;
+    const before = editor.value.slice(0, caret);
+    const lineStart = before.lastIndexOf("\n") + 1;
+    const currentLine = before.slice(lineStart);
+    const indent = (currentLine.match(/^(\s*)/) || ["", ""])[1];
+
+    if (editor.value[caret - 1] === "{" && editor.value[caret] === "}") {
+      const innerIndent = indent + "    ";
+      insertTextAtSelection("\n" + innerIndent + "\n" + indent, "end");
+      editor.selectionStart = editor.selectionEnd = caret + 1 + innerIndent.length;
+    } else {
+      insertTextAtSelection("\n" + indent, "end");
+    }
+
+    updateHighlighting();
+    updateWindowStats();
+    updateActiveLine();
+    return;
+  }
+
+  // Tab = 4 spaces
+  if (e.key === "Tab") {
+    e.preventDefault();
+    insertTextAtSelection("    ", "end");
+    updateHighlighting();
+    updateWindowStats();
+    updateActiveLine();
+    return;
+  }
+});
+
+// Block paste/drop/context menu
+editor.addEventListener("paste", (e) => {
+  e.preventDefault();
+  showToast("🚫 Paste is disabled — type it!", "#ef4444");
+});
+editor.addEventListener("drop", (e) => e.preventDefault());
+editor.addEventListener("contextmenu", (e) => e.preventDefault());
+
+/* =========================
+   JUDGE0 INTEGRATION
+========================= */
+let javaLanguageId = null;
+
+async function resolveJavaLanguageIdVerbose() {
+  let res;
+  try {
+    res = await fetch(`${JUDGE0_BASE}/languages`, { cache: "no-store" });
+  } catch (err) {
+    throw new Error(`Cannot reach ${JUDGE0_BASE}/languages (network/CORS). ${err?.message || err}`);
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Judge0 /languages failed: HTTP ${res.status} ${res.statusText}. ${text.slice(0, 200)}`);
+  }
+
+  const langs = await res.json();
+  const javaLangs = langs.filter((l) => typeof l?.name === "string" && l.name.toLowerCase().includes("java"));
+  if (!javaLangs.length) throw new Error("Java not found in Judge0 /languages response.");
+
+  // Prefer OpenJDK if present
+  const preferred = javaLangs.filter((l) => l.name.toLowerCase().includes("openjdk"));
+  const pool = preferred.length ? preferred : javaLangs;
+
+  pool.sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
+  return pool[0].id;
+}
+
+async function getJavaLanguageIdCached() {
+  if (javaLanguageId) return javaLanguageId;
+
+  const cached = localStorage.getItem(JAVA_LANG_CACHE_KEY);
+  if (cached && !Number.isNaN(parseInt(cached, 10))) {
+    javaLanguageId = parseInt(cached, 10);
+    return javaLanguageId;
+  }
+
+  const id = await resolveJavaLanguageIdVerbose();
+  javaLanguageId = id;
+  localStorage.setItem(JAVA_LANG_CACHE_KEY, String(id));
+  return id;
+}
+
+async function runOnJudge0({ source_code, stdin, language_id }) {
+  // Submit quickly
+  const createRes = await fetch(`${JUDGE0_BASE}/submissions?base64_encoded=false&wait=false`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ language_id, source_code, stdin: stdin || "" }),
+  });
+
+  if (!createRes.ok) throw new Error("Failed to create submission");
+  const { token } = await createRes.json();
+
+  // Poll for result
+  const fields = "stdout,stderr,compile_output,status_id,status";
+  let delay = 150;
+
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, delay));
+    const res = await fetch(`${JUDGE0_BASE}/submissions/${token}?base64_encoded=false&fields=${fields}`);
+    if (!res.ok) throw new Error("Failed to fetch submission result");
+    const result = await res.json();
+
+    if (result.status_id > 2) return result; // done
+    delay = Math.min(800, delay + 100);
+  }
+
+  throw new Error("Judge0 timed out");
+}
+
+async function warmUpCompiler() {
+  try {
+    const id = await getJavaLanguageIdCached();
+    await runOnJudge0({
+      source_code: `class Main{public static void main(String[]a){}}`,
+      stdin: "",
+      language_id: id,
+    });
+  } catch (_) {
+    // ignore warmup failures
+  }
+}
+
+// Quick tests: first 2 only
+function splitTests(tests) {
+  if (!Array.isArray(tests)) return { quick: [], full: [] };
+  if (tests.length <= 2) return { quick: tests, full: tests };
+  return { quick: tests.slice(0, 2), full: tests };
+}
+
+/* =========================
+   TEST RESULT UI
+========================= */
+function showTestResults(results) {
+  if (!testStatusCard || !testStatusList) return;
+  testStatusCard.style.display = "block";
+  testStatusList.innerHTML = results
+    .map(
+      (r) => `
+      <div class="test-result-row ${r.passed ? "pass" : "fail"}">
+        <span>${r.passed ? "✅" : "❌"}</span>
+        <span>${escapeHtml(r.label)}</span>
+        ${r.error ? `<span class="test-error">${escapeHtml(r.error)}</span>` : ""}
+      </div>
+    `
+    )
+    .join("");
+}
 
 /* =========================
    VICTORY OVERLAY
@@ -161,326 +579,52 @@ function showVictoryAnimation({ time, cps, best }) {
 }
 
 /* =========================
-   BORDER TRACE WHILE TYPING
-========================= */
-let currentTrace = 0,
-  targetTrace = 0,
-  traceRAF = null;
-
-function updateTraceProgress() {
-  const targetChars = 140;
-  targetTrace = Math.min(1, editor.value.length / targetChars);
-  if (editor.value.trim().length > 0) windowEl.classList.add("is-typing");
-  else {
-    windowEl.classList.remove("is-typing");
-    targetTrace = 0;
-  }
-  if (!traceRAF) animateTrace();
-}
-
-function animateTrace() {
-  traceRAF = requestAnimationFrame(animateTrace);
-  currentTrace += (targetTrace - currentTrace) * 0.12;
-  windowEl.style.setProperty("--trace", currentTrace.toString());
-  if (Math.abs(targetTrace - currentTrace) < 0.001) {
-    currentTrace = targetTrace;
-    windowEl.style.setProperty("--trace", currentTrace.toString());
-    cancelAnimationFrame(traceRAF);
-    traceRAF = null;
-  }
-}
-
-/* =========================
-   TIMER + STATS
-========================= */
-let startTime = null;
-let timerInterval = null;
-let finished = false;
-let totalCharsTyped = 0;
-const storedBest = localStorage.getItem(bestKey);
-let bestTime = storedBest ? parseInt(storedBest, 10) : null;
-
-function updateWindowStats() {
-  if (!windowStats) return;
-  const lines = editor.value.split("\n").length;
-  const chars = editor.value.length;
-  windowStats.textContent = `${lines} lines · ${chars} chars`;
-}
-
-/* =========================
-   SYNTAX HIGHLIGHTING
-========================= */
-function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function updateHighlighting() {
-  let code = escapeHtml(editor.value);
-
-  code = code.replace(/("(?:[^"\\]|\\.)*")/g, '<span class="token string">$1</span>');
-  code = code.replace(/(\/\/[^\n]*)/g, '<span class="token comment">$1</span>');
-
-  const keywords =
-    /\b(public|private|protected|class|static|void|int|long|double|float|boolean|char|String|new|return|if|else|while|for|do|break|continue|import|Scanner|System|out|println|print|in|Math|Arrays|ArrayList|List|Map|HashMap|null|true|false|this|super|extends|implements|interface|try|catch|finally|throw|throws)\b/g;
-
-  const parts = code.split(/(<span[^>]*>[\s\S]*?<\/span>)/g);
-  code = parts
-    .map((part) => (part.startsWith("<span") ? part : part.replace(keywords, '<span class="token keyword">$1</span>')))
-    .join("");
-
-  const numParts = code.split(/(<span[^>]*>[\s\S]*?<\/span>)/g);
-  code = numParts
-    .map((part) => (part.startsWith("<span") ? part : part.replace(/\b(\d+)\b/g, '<span class="token number">$1</span>')))
-    .join("");
-
-  highlightContent.innerHTML = code;
-}
-
-/* =========================
-   INPUT LISTENER
-========================= */
-let lastLength = editor.value.length;
-
-editor.addEventListener("input", () => {
-  editor.addEventListener("input", updateActiveLine);
-editor.addEventListener("click", updateActiveLine);
-editor.addEventListener("keyup", updateActiveLine);
-editor.addEventListener("scroll", updateActiveLine, { passive: true });
-
-window.addEventListener("resize", updateActiveLine);
-window.addEventListener("load", updateActiveLine);
-
-  const newLength = editor.value.length;
-  if (newLength > lastLength) totalCharsTyped += newLength - lastLength;
-  lastLength = newLength;
-
-  if (!finished) {
-    if (!startTime && editor.value.trim().length > 0) {
-      startTime = Date.now();
-      if (timerInterval) clearInterval(timerInterval);
-      timerInterval = setInterval(() => {
-        if (finished) return;
-        const t = Math.floor((Date.now() - startTime) / 1000);
-        if (bgTimer.textContent !== t.toString()) {
-          bgTimer.textContent = t;
-          bgTimer.classList.remove("pulse-active");
-          void bgTimer.offsetWidth;
-          bgTimer.classList.add("pulse-active");
-        }
-      }, 500);
-      showToast("Race started! Go! 🚀", "var(--accent)");
-    }
-    updateTraceProgress();
-  }
-
-  updateHighlighting();
-  updateWindowStats();
-});
-let scrollRAF = null;
-let pendingTop = 0;
-let pendingLeft = 0;
-
-editor.addEventListener(
-  "scroll",
-  () => {
-    pendingTop = editor.scrollTop;
-    pendingLeft = editor.scrollLeft;
-
-    if (scrollRAF) return;
-    scrollRAF = requestAnimationFrame(() => {
-      highlightLayer.scrollTop = pendingTop;
-      highlightLayer.scrollLeft = pendingLeft;
-      scrollRAF = null;
-    });
-  },
-  { passive: true }
-);
-function insertTextAtSelection(text, mode = "end") {
-  const start = editor.selectionStart;
-  const end = editor.selectionEnd;
-  editor.setRangeText(text, start, end, mode); // ✅ preserves undo stack
-}
-
-
-
-
-/* =========================
-   KEYBOARD LOGIC
-========================= */
-editor.addEventListener("keydown", (e) => {
-  if (finished) {
-    // ✅ Let browser handle Undo/Redo normally
-if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) {
-  return;
-}
-
-    if (e.ctrlKey && e.key === "Enter") e.preventDefault();
-    return;
-  }
-
-  const start = editor.selectionStart;
-  const end = editor.selectionEnd;
-
-  if (e.ctrlKey && e.key === "Enter") {
-    e.preventDefault();
-    runCode();
-    return;
-  }
-
-  const closers = ["}", ")", "]", '"', "'"];
-  if (closers.includes(e.key) && editor.value[start] === e.key) {
-    e.preventDefault();
-    editor.selectionStart = editor.selectionEnd = start + 1;
-    return;
-  }
-
-  const pairs = { "{": "}", "(": ")", "[": "]" };
-if (pairs[e.key]) {
-  e.preventDefault();
-  const start = editor.selectionStart;
-  insertTextAtSelection(e.key + pairs[e.key], "end");
-  editor.selectionStart = editor.selectionEnd = start + 1; // caret inside
-  updateHighlighting();
-  updateWindowStats();
-  updateActiveLine?.();
-  return;
-}
-
-
-if (e.key === "Enter") {
-  e.preventDefault();
-
-  const start = editor.selectionStart;
-  const before = editor.value.slice(0, start);
-  const lineStart = before.lastIndexOf("\n") + 1;
-  const currentLine = before.slice(lineStart);
-  const indent = (currentLine.match(/^(\s*)/) || ["", ""])[1];
-
-  // Special case: between {}
-  if (editor.value[start - 1] === "{" && editor.value[start] === "}") {
-    const innerIndent = indent + "    ";
-    insertTextAtSelection("\n" + innerIndent + "\n" + indent, "end");
-    editor.selectionStart = editor.selectionEnd = start + 1 + innerIndent.length;
-  } else {
-    insertTextAtSelection("\n" + indent, "end");
-  }
-
-  updateHighlighting();
-  updateWindowStats();
-  updateActiveLine?.();
-  return;
-}
-
-  if (e.key === "Tab") {
-  e.preventDefault();
-  insertTextAtSelection("    ", "end");
-  updateHighlighting();
-  updateWindowStats();
-  updateActiveLine?.();
-  return;
-}
-
-});
-
-// Block paste/drop
-editor.addEventListener("paste", (e) => {
-  e.preventDefault();
-  showToast("🚫 Paste is disabled — type it!", "#ef4444");
-});
-editor.addEventListener("drop", (e) => e.preventDefault());
-editor.addEventListener("contextmenu", (e) => e.preventDefault());
-
-/* =========================
-   JUDGE0 INTEGRATION
-========================= */
-let javaLanguageId = null;
-
-function normalizeOut(s) {
-  // Keeps your old behavior but slightly more forgiving about trailing spaces per line
-  return (s ?? "")
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .join("\n")
-    .trim();
-}
-
-// Verbose fetch for language id (gives you real reason if it fails)
-async function resolveJavaLanguageIdVerbose() {
-  let res;
-  try {
-    res = await fetch(`${JUDGE0_BASE}/languages`, { cache: "no-store" });
-  } catch (err) {
-    throw new Error(`Cannot reach ${JUDGE0_BASE}/languages (network/CORS). ${err?.message || err}`);
-  }
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Judge0 /languages failed: HTTP ${res.status} ${res.statusText}. ${text.slice(0, 200)}`);
-  }
-
-  const langs = await res.json();
-  const javaLangs = langs.filter(
-    (l) => typeof l?.name === "string" && l.name.toLowerCase().includes("java")
-  );
-
-  if (!javaLangs.length) throw new Error("Java not found in Judge0 /languages response.");
-
-  // Prefer OpenJDK if present
-  const preferred = javaLangs.filter((l) => l.name.toLowerCase().includes("openjdk"));
-  const pool = preferred.length ? preferred : javaLangs;
-
-  pool.sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
-  console.log("Java language chosen:", pool[0]);
-  return pool[0].id;
-}
-
-async function getJavaLanguageIdCached() {
-  // In-memory first
-  if (javaLanguageId) return javaLanguageId;
-
-  // localStorage cache
-  const cached = localStorage.getItem(JAVA_LANG_CACHE_KEY);
-  if (cached && !Number.isNaN(parseInt(cached, 10))) {
-    javaLanguageId = parseInt(cached, 10);
-    return javaLanguageId;
-  }
-
-  // Fetch once
-  const id = await resolveJavaLanguageIdVerbose();
-  javaLanguageId = id;
-  localStorage.setItem(JAVA_LANG_CACHE_KEY, String(id));
-  return id;
-}
-
-async function runOnJudge0({ source_code, stdin, language_id }) {
-  const url = `${JUDGE0_BASE}/submissions?wait=true&base64_encoded=false&fields=*`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      language_id,
-      source_code,
-      stdin: stdin || "",
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Judge0 error (${res.status}): ${text.slice(0, 200)}`);
-  }
-
-  const data = await res.json();
-  // Debug (leave it; helps a lot while building)
-  console.log("JUDGE0 RESULT:", data);
-  return data;
-}
-
-/* =========================
-   SUBMIT (MULTI-TEST)
+   RUN CODE (QUICK THEN FULL)
 ========================= */
 let isRunning = false;
+
+async function runBatch(batch, labelOffset = 0) {
+  const batchResults = [];
+
+  for (let i = 0; i < batch.length; i++) {
+    const t = batch[i];
+    let result;
+
+    try {
+      result = await runOnJudge0({
+        source_code: prepareJavaSource(editor.value),
+        stdin: t.stdin || "",
+        language_id: javaLanguageId,
+      });
+    } catch (e) {
+      console.error(e);
+      batchResults.push({ passed: false, label: `Test ${labelOffset + i + 1}`, error: "Run error" });
+      return { passed: false, results: batchResults };
+    }
+
+    const stdout = normalizeOut(result.stdout);
+    const stderr = normalizeOut(result.stderr);
+    const compileOut = normalizeOut(result.compile_output);
+    const expected = normalizeOut(t.out);
+
+    if (compileOut) {
+      batchResults.push({ passed: false, label: `Test ${labelOffset + i + 1}`, error: "Compilation Error" });
+      return { passed: false, results: batchResults };
+    }
+
+    if (stderr) {
+      batchResults.push({ passed: false, label: `Test ${labelOffset + i + 1}`, error: "Runtime Error" });
+      return { passed: false, results: batchResults };
+    }
+
+    const passed = stdout === expected;
+    batchResults.push({ passed, label: `Test ${labelOffset + i + 1}` });
+
+    if (!passed) return { passed: false, results: batchResults };
+  }
+
+  return { passed: true, results: batchResults };
+}
 
 async function runCode() {
   if (finished || !startTime || isRunning) return;
@@ -493,14 +637,12 @@ async function runCode() {
   const finalTime = Math.max(1, Math.floor((Date.now() - startTime) / 1000));
   bgTimer.textContent = finalTime;
 
-  testStatusCard.style.display = "none";
-  testStatusList.innerHTML = "";
-
-  showToast("🧪 Running tests...", "#f59e0b");
+  if (testStatusCard) testStatusCard.style.display = "none";
+  if (testStatusList) testStatusList.innerHTML = "";
 
   try {
     showToast("🔍 Connecting to compiler...", "#3b82f6");
-    await getJavaLanguageIdCached();
+    javaLanguageId = await getJavaLanguageIdCached();
   } catch (e) {
     console.error(e);
     showToast(`❌ Compiler unavailable: ${e.message || e}`, "#ef4444");
@@ -511,74 +653,19 @@ async function runCode() {
     return;
   }
 
-  const tests = currentQuestion.tests?.length
+  const allTests = currentQuestion.tests?.length
     ? currentQuestion.tests
     : [{ stdin: currentQuestion.stdin || "", out: currentQuestion.expectedOutput || "" }];
 
-  const results = [];
-  let allPassed = true;
+  const { quick, full } = splitTests(allTests);
 
-  for (let i = 0; i < tests.length; i++) {
-    const t = tests[i];
+  // Phase 1: quick
+  showToast(`🧪 Quick tests (${quick.length})...`, "#f59e0b");
+  const quickRun = await runBatch(quick, 0);
+  showTestResults(quickRun.results);
 
-    const sourceToRun = prepareJavaSource(editor.value);
-
-    let result;
-    try {
-      result = await runOnJudge0({
-        source_code: sourceToRun,
-        stdin: t.stdin || "",
-        language_id: javaLanguageId,
-      });
-    } catch (e) {
-      console.error(e);
-      showToast("❌ Compile/Run request failed.", "#ef4444");
-      results.push({ passed: false, label: `Test ${i + 1}`, error: (e.message || "Run error").slice(0, 140) });
-      allPassed = false;
-      break;
-    }
-
-    const stdout = normalizeOut(result.stdout);
-    const stderr = normalizeOut(result.stderr);
-    const compileOut = normalizeOut(result.compile_output);
-    const expected = normalizeOut(t.out);
-
-    // ✅ Show real compiler error
-    if (compileOut) {
-      showToast("❌ Compilation Error", "#ef4444");
-      results.push({
-        passed: false,
-        label: `Test ${i + 1}`,
-        error: compileOut.slice(0, 300) + (compileOut.length > 300 ? "…" : ""),
-      });
-      allPassed = false;
-      break;
-    }
-
-    // ✅ Show real runtime error
-    if (stderr) {
-      showToast("❌ Runtime Error", "#ef4444");
-      results.push({
-        passed: false,
-        label: `Test ${i + 1}`,
-        error: stderr.slice(0, 300) + (stderr.length > 300 ? "…" : ""),
-      });
-      allPassed = false;
-      break;
-    }
-
-    const passed = stdout === expected;
-    results.push({ passed, label: `Test ${i + 1}` });
-
-    if (!passed) {
-      showToast(`❌ Wrong Answer on Test ${i + 1}`, "#ef4444");
-      allPassed = false;
-      break;
-    }
-  }
-
-  if (!allPassed) {
-    showTestResults(results);
+  if (!quickRun.passed) {
+    showToast("❌ Failed quick tests", "#ef4444");
     resumeTimer();
     runBtn.disabled = false;
     runBtn.classList.remove("loading");
@@ -586,12 +673,25 @@ async function runCode() {
     return;
   }
 
+  // Phase 2: full (only if more than quick)
+  if (full.length > quick.length) {
+    showToast(`✅ Quick pass — Full tests (${full.length})...`, "var(--accent)");
+    const fullRun = await runBatch(full, 0);
+    showTestResults(fullRun.results);
+
+    if (!fullRun.passed) {
+      showToast("❌ Failed full tests", "#ef4444");
+      resumeTimer();
+      runBtn.disabled = false;
+      runBtn.classList.remove("loading");
+      isRunning = false;
+      return;
+    }
+  }
+
   // ✅ All passed
   finished = true;
   isRunning = false;
-
-  const allResults = tests.map((_, i) => ({ passed: true, label: `Test ${i + 1}` }));
-  showTestResults(allResults);
 
   windowEl.classList.add("is-complete");
   windowEl.style.setProperty("--trace", "1");
@@ -610,120 +710,56 @@ async function runCode() {
   showVictoryAnimation({ time: finalTime, cps, best: bestTime });
 }
 
-function showTestResults(results) {
-  testStatusCard.style.display = "block";
-  testStatusList.innerHTML = results
-    .map(
-      (r) => `
-    <div class="test-result-row ${r.passed ? "pass" : "fail"}">
-      <span>${r.passed ? "✅" : "❌"}</span>
-      <span>${r.label}</span>
-      ${r.error ? `<span class="test-error">${escapeHtml(r.error)}</span>` : ""}
-    </div>
-  `
-    )
-    .join("");
-}
-
-function resumeTimer() {
-  if (finished) return;
-  const elapsed = parseInt(bgTimer.textContent || "0", 10) * 1000;
-  startTime = Date.now() - elapsed;
-  if (timerInterval) clearInterval(timerInterval);
-  timerInterval = setInterval(() => {
-    if (finished) return;
-    bgTimer.textContent = Math.floor((Date.now() - startTime) / 1000).toString();
-  }, 500);
-}
-
 /* =========================
    CONTROLS
 ========================= */
-if (colorPicker) {
-  colorPicker.addEventListener("input", (e) => {
-    const c = e.target.value;
-    document.documentElement.style.setProperty("--accent", c);
-    document.documentElement.style.setProperty("--accent-glow", c + "44");
-    localStorage.setItem("compileRaceAccent", c);
+if (runBtn) runBtn.addEventListener("click", runCode);
+
+if (restartBtn) {
+  restartBtn.addEventListener("click", () => {
+    if (!confirm("Restart the challenge?")) return;
+
+    clearInterval(timerInterval);
+    startTime = null;
+    finished = false;
+    isRunning = false;
+    totalCharsTyped = 0;
+
+    bgTimer.textContent = "0";
+    bgTimer.classList.remove("pulse-active");
+
+    windowEl.classList.remove("is-complete", "is-typing");
+    windowEl.style.setProperty("--trace", "0");
+    currentTrace = 0;
+    targetTrace = 0;
+
+    editor.disabled = false;
+    editor.style.opacity = "1";
+    runBtn.disabled = false;
+    runBtn.classList.remove("loading");
+
+    if (testStatusCard) testStatusCard.style.display = "none";
+    if (testStatusList) testStatusList.innerHTML = "";
+
+    editor.value = buildStarterCode(currentQuestion);
+    lastLength = editor.value.length;
+
+    updateHighlighting();
+    updateWindowStats();
+    updateActiveLine();
+    editor.focus();
   });
 }
 
-
-runBtn.addEventListener("click", runCode);
-
-restartBtn.addEventListener("click", () => {
-  if (!confirm("Restart the challenge?")) return;
-  clearInterval(timerInterval);
-  startTime = null;
-  finished = false;
-  isRunning = false;
-  totalCharsTyped = 0;
-  lastLength = 0;
-
-  bgTimer.textContent = "0";
-  bgTimer.classList.remove("pulse-active");
-  windowEl.classList.remove("is-complete", "is-typing");
-  windowEl.style.setProperty("--trace", "0");
-  currentTrace = 0;
-  targetTrace = 0;
-
-  editor.disabled = false;
-  editor.style.opacity = "1";
-  runBtn.disabled = false;
-  runBtn.classList.remove("loading");
-
-  testStatusCard.style.display = "none";
-  testStatusList.innerHTML = "";
-
-  editor.value = buildStarterCode(currentQuestion);
-  lastLength = editor.value.length;
-  updateHighlighting();
-  updateWindowStats();
-  editor.focus();
-});
-
-function showToast(msg, color = "var(--accent)") {
-  const toast = document.getElementById("output-toast");
-  if (!toast) return;
-  toast.textContent = msg;
-  toast.style.borderLeftColor = color;
-  toast.classList.add("show");
-  clearTimeout(toast._timer);
-  toast._timer = setTimeout(() => toast.classList.remove("show"), 2800);
-}
-
-window.onload = () => {
-  updateHighlighting();
-  updateWindowStats();
-  lastLength = editor.value.length;
-  createVictoryOverlay();
-  editor.focus();
-};
-const homeBtn = document.getElementById("homeBtn");
 if (homeBtn) {
   homeBtn.addEventListener("click", () => {
     location.href = "index.html";
   });
 }
-function updateActiveLine() {
-  const activeLine = document.getElementById("active-line");
-  if (!activeLine) return;
 
-  const start = editor.selectionStart || 0;
-  const before = editor.value.slice(0, start);
-  const lineIndex = before.split("\n").length - 1;
-
-  const styles = getComputedStyle(editor);
-  const lineHeight = parseFloat(styles.lineHeight) || 22;
-  const paddingTop = parseFloat(styles.paddingTop) || 0;
-
-  const y = paddingTop + (lineIndex * lineHeight) - editor.scrollTop;
-  activeLine.style.height = lineHeight + "px";
-  activeLine.style.transform = `translateY(${y}px)`;
-}
-// ===============================
-// Accent color persistence (Home + Race)
-// ===============================
+/* ===============================
+   Accent color persistence (Home + Race)
+================================= */
 (function initAccentColor() {
   const saved = localStorage.getItem("compileRaceAccent");
   if (saved) {
@@ -735,7 +771,9 @@ function updateActiveLine() {
   const btn = document.getElementById("customizeBtn");
 
   if (picker) {
-    picker.value = saved || getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#4ade80";
+    const current = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#4ade80";
+    picker.value = saved || current;
+
     picker.addEventListener("input", (e) => {
       const c = e.target.value;
       document.documentElement.style.setProperty("--accent", c);
@@ -748,3 +786,19 @@ function updateActiveLine() {
     btn.addEventListener("click", () => picker.click());
   }
 })();
+
+document.querySelectorAll(".logo-clickable").forEach((el) => {
+  el.addEventListener("click", () => (location.href = "index.html"));
+});
+
+/* =========================
+   ONLOAD
+========================= */
+window.addEventListener("load", () => {
+  updateHighlighting();
+  updateWindowStats();
+  updateActiveLine();
+  createVictoryOverlay();
+  editor.focus();
+  warmUpCompiler(); // warmup once ✅
+});

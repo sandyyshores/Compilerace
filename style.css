@@ -15,11 +15,13 @@
 }
 
 * { box-sizing: border-box; }
-
 html, body { height: 100%; }
 
+/* ✅ Single, final body rule (no duplicates) */
 body {
-  background: var(--bg);
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255,255,255,0.03), transparent 60%),
+    var(--bg);
   color: var(--text);
   font-family: 'Inter', sans-serif;
   margin: 0;
@@ -321,7 +323,7 @@ body {
 }
 
 .editor-window.is-typing::before  { opacity: var(--trace-alpha); }
-.editor-window.is-complete        { border-color: var(--accent) !important; box-shadow: 0 0 24px var(--accent-glow) !important; }
+.editor-window.is-complete { border-color: var(--accent) !important; box-shadow: 0 0 24px var(--accent-glow) !important; }
 .editor-window.is-complete::before{ opacity: 0.2; }
 
 /* Window chrome */
@@ -356,14 +358,25 @@ body {
 
 /* ===============================
    EDITOR CORE
-   All scroll/overflow rules live
-   HERE and ONLY HERE.
 ================================= */
 .editor-container {
   position: relative;
   flex-grow: 1;
   overflow: hidden;
   min-height: 0;
+}
+
+/* Active line highlight (under the text) */
+#active-line {
+  position: absolute;
+  left: 0; right: 0;
+  height: 1.6em;
+  background: rgba(255,255,255,0.04);
+  border-left: 2px solid var(--accent);
+  pointer-events: none;
+  z-index: 1;
+  transform: translateY(0);
+  transition: transform 80ms linear;
 }
 
 /* Shared text metrics — must be identical on both layers */
@@ -393,48 +406,54 @@ body {
   border: none !important;
   outline: none;
 
-  /* ✅ FIXED: Use pre-wrap for better UX */
   white-space: pre-wrap !important;
   word-wrap: break-word !important;
   overflow-wrap: break-word !important;
   word-break: normal !important;
 }
 
-/* ── TEXTAREA: the ONE element that scrolls ── */
+/* Textarea: the one element user interacts with */
 #editor {
   background: transparent;
   color: transparent !important;
   -webkit-text-fill-color: transparent !important;
+
   caret-color: var(--accent) !important;
+  caret-shape: bar;
   z-index: 3;
   resize: none;
+
   overflow-y: auto !important;
   overflow-x: hidden !important;
   scrollbar-gutter: stable;
 }
 
-/* ── HIGHLIGHT LAYER: passive mirror, never scrolls ── */
+/* Selection styling */
+#editor::selection {
+  background: rgba(74, 222, 128, 0.25);
+}
+
+/* Highlight layer: passive mirror */
 #highlight-layer {
   z-index: 2;
   pointer-events: none;
   background: transparent;
   color: var(--text);
-  /* NEVER scroll — JS mirrors scrollTop/scrollLeft from textarea */
-  overflow: hidden !important;
+
+  /* ✅ MUST be scrollable so scrollTop mirroring is smooth */
+  overflow: auto !important;
+
+  /* hide scrollbar */
   scrollbar-width: none;
 }
-#highlight-layer::-webkit-scrollbar{
-  width:0;
-  height:0;
-}
+#highlight-layer::-webkit-scrollbar { width: 0; height: 0; }
+
 #highlight-layer,
 #editor {
   will-change: scroll-position;
 }
 
-#highlight-layer {
-  contain: paint;
-}
+#highlight-layer { contain: paint; }
 
 #highlight-content {
   display: block !important;
@@ -453,9 +472,6 @@ body {
 
 /* ===============================
    SYNTAX TOKENS
-   font-weight MUST stay 400 —
-   changing it shifts character
-   widths and breaks cursor sync
 ================================= */
 .token.keyword { color: var(--accent) !important;        font-weight: 400 !important; }
 .token.string  { color: var(--syntax-string) !important; font-weight: 400 !important; }
@@ -509,10 +525,7 @@ body {
   pointer-events: none;
 }
 
-.toast.show {
-  opacity: 1;
-  transform: translateY(0);
-}
+.toast.show { opacity: 1; transform: translateY(0); }
 
 /* ===============================
    ANIMATIONS
@@ -692,7 +705,7 @@ body {
   background: rgba(255,255,255,0.025);
   border: 1px solid var(--border);
   border-radius: 18px;
-  padding: 24px;
+  padding: 32px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.3);
 }
 
@@ -721,6 +734,26 @@ kbd {
   border-radius: 5px;
   background: rgba(255,255,255,0.06);
 }
+
+/* Hero additions */
+.home-hero { margin-bottom: 24px; }
+.home-hero h2 {
+  font-size: 2rem;
+  font-weight: 900;
+  margin-bottom: 8px;
+}
+.hero-actions { margin-top: 16px; }
+.hero-cta {
+  display: inline-block;
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 700;
+  transition: 0.2s ease;
+}
+.hero-cta:hover { background: var(--accent); color: #0d1117; }
 
 /* Filter bar */
 .filter-bar {
@@ -797,20 +830,20 @@ kbd {
 .slider-btn.left  { left: -8px; }
 .slider-btn.right { right: -8px; }
 
-/* Challenge cards */
+/* Challenge cards (single final rule) */
 .challenge-card {
   display: block;
-  padding: 16px;
-  border-radius: 14px;
+  padding: 18px;
+  border-radius: 16px;
   border: 1px solid rgba(255,255,255,0.10);
   background: rgba(255,255,255,0.028);
   text-decoration: none;
   color: var(--text);
-  transition: transform .15s ease, box-shadow .2s ease, border-color .2s ease;
+  transition: transform .18s ease, box-shadow .2s ease, border-color .2s ease;
 }
 
 .challenge-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-4px);
   border-color: rgba(255,255,255,0.22);
   box-shadow: 0 0 18px var(--accent-glow), 0 14px 36px rgba(0,0,0,0.35);
 }
@@ -822,7 +855,7 @@ kbd {
   gap: 10px;
 }
 
-.cc-title { font-weight: 900; font-size: 14px; line-height: 1.2; }
+.cc-title { font-weight: 900; font-size: 15px; line-height: 1.2; }
 
 .cc-sub {
   margin-top: 8px;
@@ -861,6 +894,8 @@ kbd {
 
 .pill-easy   { color: #86efac; border-color: rgba(134,239,172,0.2); }
 .pill-medium { color: #fde68a; border-color: rgba(253,230,138,0.2); }
+
+/* Optional home button (used on race page if present) */
 .home-btn {
   background: transparent;
   border: 1px solid var(--accent);
@@ -871,28 +906,5 @@ kbd {
   font-weight: 600;
   transition: 0.2s ease;
 }
-
-.home-btn:hover {
-  background: var(--accent);
-  color: #000;
-}
-#editor {
-  caret-color: var(--accent);
-  caret-shape: bar; /* supported in some browsers */
-}
-
-#editor::selection {
-  background: rgba(74, 222, 128, 0.25);
-}
-#active-line {
-  position: absolute;
-  left: 0; right: 0;
-  height: 1.6em;                 /* match line-height */
-  background: rgba(255,255,255,0.04);
-  border-left: 2px solid var(--accent);
-  pointer-events: none;
-  z-index: 1;                    /* under text */
-  transform: translateY(0);
-  transition: transform 80ms linear;
-}
-.editor-container { position: relative; }
+.home-btn:hover { background: var(--accent); color: #000; }
+.logo-clickable { cursor: pointer; }
