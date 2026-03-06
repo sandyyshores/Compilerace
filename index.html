@@ -3,35 +3,73 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="CompileRace – Sharpen your Java speed coding skills. Solve focused problems, pass all tests, beat your best time." />
   <title>CompileRace</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+
+  <style>
+    .tag-row  { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
+    .tag-chip {
+      font-size:10px; padding:2px 8px; border-radius:999px;
+      background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12);
+      color:rgba(255,255,255,0.5); font-family:'JetBrains Mono',monospace;
+    }
+    .header-nav-btn {
+      display:inline-flex; align-items:center; gap:6px;
+      padding:7px 14px; border-radius:8px;
+      border:1px solid rgba(255,255,255,0.12);
+      background:rgba(255,255,255,0.04);
+      color:#c9d1d9; font-size:13px; font-weight:700;
+      text-decoration:none; cursor:pointer;
+      transition:border-color 0.2s, color 0.2s;
+      font-family:'JetBrains Mono',monospace;
+    }
+    .header-nav-btn:hover { border-color:var(--accent); color:var(--accent); }
+    .header-right { display:flex; align-items:center; gap:10px; }
+  </style>
 </head>
 <body>
 
+<!-- AUTH GATE: hide page immediately, then redirect if not logged in -->
+<script>
+  (function requireLogin() {
+    const AUTH_KEY = "compileRace::authUser";
+    if (!localStorage.getItem(AUTH_KEY)) {
+      document.documentElement.style.display = "none";
+      location.href = "login.html?next=" + encodeURIComponent("index.html");
+    }
+  })();
+</script>
+
 <div class="app-header">
   <div class="header-controls">
-  <input type="color" id="colorPicker" />
-  <button class="customize-btn" id="customizeBtn">🎨 Customize</button>
-</div>
+    <input type="color" id="colorPicker" />
+    <button class="customize-btn" id="customizeBtn">🎨 Customize</button>
+  </div>
 
   <h1 class="logo">Compile<span>Race</span></h1>
-  
-  <span class="header-badge">⚡ Java Speed Coding</span>
+
+  <div class="header-right">
+    <a href="stats.html" class="header-nav-btn">📊 My Stats</a>
+    <button id="logoutBtn" class="header-nav-btn">⎋ Logout</button>
+    <span class="header-badge">⚡ Java Speed Coding</span>
+  </div>
 </div>
 
 <div class="home-wrap">
   <div class="home-card">
-    <div class="home-hero">
-  <h2>Sharpen Your Java Speed.</h2>
-  <p class="muted">
-    Solve small focused problems. Pass all tests. Beat your best time.
-  </p>
-  <div class="hero-actions">
-    <a href="race.html?q=0" class="hero-cta">Start Practicing →</a>
-  </div>
-</div>
 
+    <div class="home-hero">
+      <h2>Sharpen Your Java Speed.</h2>
+      <p class="muted">Solve small focused problems. Pass all tests. Beat your best time.</p>
+      <div class="hero-actions">
+        <a href="race.html?q=0" class="hero-cta">Start Practicing →</a>
+      </div>
+    </div>
 
     <div class="filter-bar">
       <button class="filter-btn active" data-filter="all">All</button>
@@ -41,7 +79,7 @@
     </div>
 
     <div class="slider-wrap">
-      <button class="slider-btn left" id="slideLeft" aria-label="Scroll left">‹</button>
+      <button class="slider-btn left"  id="slideLeft"  aria-label="Scroll left">‹</button>
       <div class="slider" id="challengeSlider"></div>
       <button class="slider-btn right" id="slideRight" aria-label="Scroll right">›</button>
     </div>
@@ -50,98 +88,120 @@
       <span class="muted">Tip: Press <kbd>Ctrl+Enter</kbd> to submit.</span>
       <span class="muted" id="questionCount"></span>
     </div>
+
   </div>
 </div>
 
 <script src="questions.js"></script>
+
 <script>
-  // Accent color persistence (Home + Race)
+  /* ── Accent color ── */
   (function initAccentColor() {
     const saved = localStorage.getItem("compileRaceAccent");
     if (saved) {
-      document.documentElement.style.setProperty("--accent", saved);
+      document.documentElement.style.setProperty("--accent",      saved);
       document.documentElement.style.setProperty("--accent-glow", saved + "44");
     }
-
     const picker = document.getElementById("colorPicker");
-    const btn = document.getElementById("customizeBtn");
+    const btn    = document.getElementById("customizeBtn");
     if (!picker) return;
-
     picker.value = saved || "#4ade80";
-
     picker.addEventListener("input", (e) => {
       const c = e.target.value;
-      document.documentElement.style.setProperty("--accent", c);
+      document.documentElement.style.setProperty("--accent",      c);
       document.documentElement.style.setProperty("--accent-glow", c + "44");
       localStorage.setItem("compileRaceAccent", c);
     });
-
     if (btn) btn.addEventListener("click", () => picker.click());
   })();
-</script>
 
-<script>
-  const slider = document.getElementById("challengeSlider");
-  const leftBtn = document.getElementById("slideLeft");
+  /* ── Challenge slider ── */
+  const slider   = document.getElementById("challengeSlider");
+  const leftBtn  = document.getElementById("slideLeft");
   const rightBtn = document.getElementById("slideRight");
-  const countEl = document.getElementById("questionCount");
-  const all = window.QUESTIONS || [];
+  const countEl  = document.getElementById("questionCount");
 
-  function getBestTime(id) {
-    const v = localStorage.getItem(`compileRaceBestTime::${id}`);
-    return v ? parseInt(v, 10) : null;
-  }
+  const all = window.QUESTIONS;
+  if (!Array.isArray(all) || all.length === 0) {
+    slider.innerHTML = `<div class="empty-state">⚠️ Could not load challenges. Please refresh.</div>`;
+    countEl.textContent = "0 challenges";
+  } else {
 
-  function renderSlider(filter = "all") {
-    const filtered = filter === "all" ? all : all.filter(q => q.difficulty === filter);
-    countEl.textContent = `${filtered.length} challenge${filtered.length !== 1 ? "s" : ""}`;
-    slider.innerHTML = "";
-
-    if (!filtered.length) {
-      slider.innerHTML = `<div class="empty-state">No challenges yet for this difficulty.</div>`;
-      return;
+    // FIX: parseFloat preserves decimal best times
+    function getBestTime(id) {
+      const v = localStorage.getItem(`compileRaceBestTime::${id}`);
+      return v ? parseFloat(v) : null;
     }
 
-    filtered.forEach((q) => {
-      const originalIdx = all.indexOf(q);
-      const diff = q.difficulty || "Easy";
-      const best = getBestTime(q.id);
-      const a = document.createElement("a");
-      a.className = "challenge-card";
-      a.href = `race.html?q=${originalIdx}`;
-      a.innerHTML = `
-        <div class="card-top">
-          <div class="cc-title">${q.title}</div>
-          <div class="pill pill-${diff.toLowerCase()}">${diff}</div>
-        </div>
-        <div class="cc-sub">${q.objective}</div>
-        <div class="cc-footer">
-          <div class="cc-best ${best ? '' : 'cc-best-empty'}">${best ? `🏆 Best: ${best}s` : 'Not attempted'}</div>
-          <div class="cc-cta">Start →</div>
-        </div>
-      `;
-      slider.appendChild(a);
+    function renderSlider(filter = "all") {
+      const filtered = filter === "all" ? all : all.filter((q) => q.difficulty === filter);
+      countEl.textContent = `${filtered.length} challenge${filtered.length !== 1 ? "s" : ""}`;
+      slider.innerHTML = "";
+
+      if (!filtered.length) {
+        slider.innerHTML = `<div class="empty-state">No challenges yet for this difficulty.</div>`;
+        return;
+      }
+
+      filtered.forEach((q) => {
+        const originalIdx = all.indexOf(q);
+        const diff        = q.difficulty || "Easy";
+        const best        = getBestTime(q.id);
+
+        const tagHtml = (q.tags || []).slice(0, 3)
+          .map((t) => `<span class="tag-chip">${t}</span>`)
+          .join("");
+
+        const a     = document.createElement("a");
+        // FIX: !== null so bestTime of 0 is treated as solved
+        a.className = "challenge-card" + (best !== null ? " is-solved" : "");
+        a.href      = `race.html?q=${originalIdx}`;
+        a.innerHTML = `
+          ${best !== null ? `<div class="cc-solved-badge" title="Solved!">✓</div>` : ""}
+          <div class="card-top">
+            <div class="cc-title">${q.title}</div>
+            <div class="pill pill-${diff.toLowerCase()}">${diff}</div>
+          </div>
+          <div class="cc-sub">${q.objective}</div>
+          ${tagHtml ? `<div class="tag-row">${tagHtml}</div>` : ""}
+          <div class="cc-footer">
+            <div class="cc-best ${best !== null ? "" : "cc-best-empty"}">${best !== null ? `🏆 Best: ${best}s` : "Not attempted"}</div>
+            <div class="cc-cta">${best !== null ? "Retry →" : "Start →"}</div>
+          </div>
+        `;
+        slider.appendChild(a);
+      });
+    }
+
+    // FIX: guard against zero-width card (e.g. hidden slider)
+    function scrollByCards(dir) {
+      const card = slider.querySelector(".challenge-card");
+      if (!card) return;
+      const w = card.getBoundingClientRect().width;
+      if (w === 0) return;
+      slider.scrollBy({ left: dir * (w + 14), behavior: "smooth" });
+    }
+
+    leftBtn.addEventListener("click",  () => scrollByCards(-1));
+    rightBtn.addEventListener("click", () => scrollByCards(1));
+
+    document.querySelectorAll(".filter-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        renderSlider(btn.dataset.filter);
+      });
     });
+
+    renderSlider();
   }
 
-  function scrollByCards(dir) {
-    const card = slider.querySelector(".challenge-card");
-    if (!card) return;
-    slider.scrollBy({ left: dir * (card.getBoundingClientRect().width + 14), behavior: "smooth" });
-  }
-
-  leftBtn.addEventListener("click", () => scrollByCards(-1));
-  rightBtn.addEventListener("click", () => scrollByCards(1));
-
-  document.querySelectorAll(".filter-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      renderSlider(btn.dataset.filter);
-    });
+  /* ── Logout ── */
+  document.getElementById("logoutBtn").addEventListener("click", () => {
+    localStorage.removeItem("compileRace::authUser");
+    location.href = "login.html?next=" + encodeURIComponent("index.html");
   });
-
-  renderSlider();
 </script>
+
 </body>
 </html>

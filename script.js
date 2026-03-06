@@ -5,31 +5,33 @@
 /* =========================
    DOM
 ========================= */
-const editor = document.getElementById("editor");
+const editor           = document.getElementById("editor");
 const highlightContent = document.getElementById("highlight-content");
-const highlightLayer = document.getElementById("highlight-layer");
-const bgTimer = document.getElementById("bg-timer");
+const highlightLayer   = document.getElementById("highlight-layer");
+const bgTimer          = document.getElementById("bg-timer");
 
-const runBtn = document.getElementById("runBtn");
-const restartBtn = document.getElementById("restartBtn");
-const colorPicker = document.getElementById("colorPicker");
+const runBtn           = document.getElementById("runBtn");
+const restartBtn       = document.getElementById("restartBtn");
 
-const windowEl = document.querySelector(".editor-window");
-const objectiveText = document.getElementById("objectiveText");
-const sampleInputText = document.getElementById("sampleInputText");
+const windowEl         = document.querySelector(".editor-window");
+const objectiveText    = document.getElementById("objectiveText");
+const sampleInputText  = document.getElementById("sampleInputText");
 const sampleOutputText = document.getElementById("sampleOutputText");
 
-const testStatusCard = document.getElementById("testStatusCard");
-const testStatusList = document.getElementById("testStatusList");
-const windowStats = document.getElementById("windowStats");
+const testStatusCard   = document.getElementById("testStatusCard");
+const testStatusList   = document.getElementById("testStatusList");
+const windowStats      = document.getElementById("windowStats");
 
-const homeBtn = document.getElementById("homeBtn");
+const homeBtn          = document.getElementById("homeBtn");
+const prevBtn          = document.getElementById("prevBtn");
+const nextBtn          = document.getElementById("nextBtn");
 
 /* =========================
    CONFIG
 ========================= */
-const JUDGE0_BASE = "https://ce.judge0.com";
+const JUDGE0_BASE         = "https://ce.judge0.com";
 const JAVA_LANG_CACHE_KEY = "compileRace::javaLanguageId";
+const JAVA_FALLBACK_IDS   = [91, 62];
 
 /* =========================
    HELPERS
@@ -49,7 +51,6 @@ function escapeHtml(s) {
 }
 
 function normalizeOut(s) {
-  // slightly forgiving: trims trailing spaces per line + overall trim
   return (s ?? "")
     .replace(/\r\n/g, "\n")
     .split("\n")
@@ -60,51 +61,21 @@ function normalizeOut(s) {
 
 function insertTextAtSelection(text, mode = "end") {
   const start = editor.selectionStart;
-  const end = editor.selectionEnd;
-  editor.setRangeText(text, start, end, mode); // preserves undo stack ✅
+  const end   = editor.selectionEnd;
+  editor.setRangeText(text, start, end, mode);
 }
 
 /* =========================
-   TEMPLATE + QUESTION LOAD
+   QUESTION HELPERS
 ========================= */
-function buildStarterCode(q) {
-  const template =
-    window.JAVA_TEMPLATE ||
-    `import java.util.Scanner;\nclass Main{\n  public static void main(String[] args){\n    Scanner sc = new Scanner(System.in);\n    {{CODE}}\n  }\n}\n`;
-
-  const insert = (q.starterInsert || "// write your code here").trim();
-  const indented = insert
-    .split("\n")
-    .map((l) => "    " + l)
-    .join("\n");
-
-  return template.replace("{{CODE}}", indented + "\n");
-}
-
-// Allows BOTH styles:
-// 1) user types only logic snippet -> wrap it
-// 2) user types full program -> send as-is
-function prepareJavaSource(raw) {
-  const code = (raw || "").trim();
-
-  const looksLikeFullProgram =
-    /\bclass\s+Main\b/.test(code) ||
-    /\bpublic\s+class\s+Main\b/.test(code) ||
-    /\bpublic\s+static\s+void\s+main\s*\(/.test(code) ||
-    /^\s*import\s+.+;/m.test(code);
-
-  if (looksLikeFullProgram) return code;
-  return buildStarterCode({ starterInsert: code });
-}
-
 function getSelectedQuestionIndex() {
   const params = new URLSearchParams(location.search);
-  const idx = parseInt(params.get("q") || "0", 10);
+  const idx    = parseInt(params.get("q") || "0", 10);
   return Number.isNaN(idx) ? 0 : idx;
 }
 
 function getSelectedQuestion() {
-  const idx = getSelectedQuestionIndex();
+  const idx      = getSelectedQuestionIndex();
   const fallback = {
     id: "fallback-hello",
     title: "Hello World",
@@ -118,16 +89,66 @@ function getSelectedQuestion() {
   return qs[Math.max(0, Math.min(idx, qs.length - 1))] || fallback;
 }
 
-const currentQuestion = getSelectedQuestion();
-const bestKey = `compileRaceBestTime::${currentQuestion.id}`;
+function buildStarterCode(q) {
+  const template =
+    window.JAVA_TEMPLATE ||
+    `import java.util.Scanner;\nclass Main{\n  public static void main(String[] args){\n    Scanner sc = new Scanner(System.in);\n    {{CODE}}\n  }\n}\n`;
 
-// Fill sidebar
-if (objectiveText) objectiveText.textContent = currentQuestion.objective || "";
-if (sampleInputText) sampleInputText.textContent = currentQuestion.sample?.input || "(none)";
+  const insert   = (q.starterInsert || "// write your code here").trim();
+  const indented = insert.split("\n").map((l) => "    " + l).join("\n");
+  return template.replace("{{CODE}}", indented + "\n");
+}
+
+function prepareJavaSource(raw) {
+  const code = (raw || "").trim();
+  const looksLikeFullProgram =
+    /\bclass\s+Main\b/.test(code) ||
+    /\bpublic\s+class\s+Main\b/.test(code) ||
+    /\bpublic\s+static\s+void\s+main\s*\(/.test(code) ||
+    /^\s*import\s+.+;/m.test(code);
+  if (looksLikeFullProgram) return code;
+  return buildStarterCode({ starterInsert: code });
+}
+
+/* =========================
+   LOAD QUESTION
+========================= */
+const currentQuestion = getSelectedQuestion();
+const currentIdx      = getSelectedQuestionIndex();
+const bestKey         = `compileRaceBestTime::${currentQuestion.id}`;
+
+if (objectiveText)    objectiveText.textContent   = currentQuestion.objective       || "";
+if (sampleInputText)  sampleInputText.textContent  = currentQuestion.sample?.input  || "(none)";
 if (sampleOutputText) sampleOutputText.textContent = currentQuestion.sample?.output || "";
 
-// Set initial editor content
+document.title = `${currentQuestion.title} — CompileRace`;
+
 editor.value = buildStarterCode(currentQuestion);
+
+/* ── Prev/Next navigation ── */
+(function setupNavigation() {
+  const qs    = window.QUESTIONS || [];
+  const total = qs.length;
+
+  if (prevBtn) {
+    prevBtn.disabled = currentIdx <= 0;
+    prevBtn.addEventListener("click", () => {
+      if (currentIdx > 0) location.href = `race.html?q=${currentIdx - 1}`;
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.disabled = currentIdx >= total - 1;
+    nextBtn.addEventListener("click", () => {
+      if (currentIdx < total - 1) location.href = `race.html?q=${currentIdx + 1}`;
+    });
+  }
+
+  const titleEl = document.getElementById("raceTitle");
+  if (titleEl) {
+    titleEl.textContent = `${currentQuestion.title} (${currentIdx + 1}/${total})`;
+  }
+})();
 
 /* =========================
    ACTIVE LINE
@@ -135,48 +156,82 @@ editor.value = buildStarterCode(currentQuestion);
 function updateActiveLine() {
   const activeLine = document.getElementById("active-line");
   if (!activeLine) return;
-
-  const start = editor.selectionStart || 0;
-  const before = editor.value.slice(0, start);
+  const start     = editor.selectionStart || 0;
+  const before    = editor.value.slice(0, start);
   const lineIndex = before.split("\n").length - 1;
-
-  const styles = getComputedStyle(editor);
-  const lineHeight = parseFloat(styles.lineHeight) || 22;
-  const paddingTop = parseFloat(styles.paddingTop) || 0;
-
-  const y = paddingTop + lineIndex * lineHeight - editor.scrollTop;
-  activeLine.style.height = lineHeight + "px";
+  const styles    = getComputedStyle(editor);
+  const lineH     = parseFloat(styles.lineHeight) || 22;
+  const padTop    = parseFloat(styles.paddingTop)  || 0;
+  const y         = padTop + lineIndex * lineH - editor.scrollTop;
+  activeLine.style.height    = lineH + "px";
   activeLine.style.transform = `translateY(${y}px)`;
+}
+
+/* =========================
+   LINE NUMBERS
+========================= */
+const lineNumbersEl = document.getElementById("line-numbers");
+
+function updateLineNumbers() {
+  if (!lineNumbersEl) return;
+  const lines      = editor.value.split("\n");
+  const totalLines = lines.length;
+  const caretLine  = editor.value.slice(0, editor.selectionStart).split("\n").length;
+
+  if (lineNumbersEl.children.length !== totalLines) {
+    lineNumbersEl.innerHTML = "";
+    for (let i = 1; i <= totalLines; i++) {
+      const span = document.createElement("span");
+      span.className   = "ln";
+      span.textContent = i;
+      lineNumbersEl.appendChild(span);
+    }
+  }
+
+  Array.from(lineNumbersEl.children).forEach((el, i) => {
+    el.classList.toggle("active", i + 1 === caretLine);
+  });
+
+  lineNumbersEl.scrollTop = editor.scrollTop;
 }
 
 /* =========================
    SYNTAX HIGHLIGHTING
 ========================= */
-function updateHighlighting() {
+let highlightPending = false;
+
+function scheduleHighlighting() {
+  if (highlightPending) return;
+  highlightPending = true;
+  requestAnimationFrame(() => {
+    highlightPending = false;
+    _doHighlighting();
+  });
+}
+
+function _doHighlighting() {
   let code = escapeHtml(editor.value);
 
-  // Strings first
   code = code.replace(/("(?:[^"\\]|\\.)*")/g, '<span class="token string">$1</span>');
-  // Comments
-  code = code.replace(/(\/\/[^\n]*)/g, '<span class="token comment">$1</span>');
+  code = code.replace(/(\/\/[^\n]*)/g,         '<span class="token comment">$1</span>');
 
-  // Keywords
   const keywords =
     /\b(public|private|protected|class|static|void|int|long|double|float|boolean|char|String|new|return|if|else|while|for|do|break|continue|import|Scanner|System|out|println|print|in|Math|Arrays|ArrayList|List|Map|HashMap|null|true|false|this|super|extends|implements|interface|try|catch|finally|throw|throws)\b/g;
 
-  const parts = code.split(/(<span[^>]*>[\s\S]*?<\/span>)/g);
-  code = parts
-    .map((part) => (part.startsWith("<span") ? part : part.replace(keywords, '<span class="token keyword">$1</span>')))
+  const split1 = code.split(/(<span[^>]*>[\s\S]*?<\/span>)/g);
+  code = split1
+    .map((p) => (p.startsWith("<span") ? p : p.replace(keywords, '<span class="token keyword">$1</span>')))
     .join("");
 
-  // Numbers
-  const numParts = code.split(/(<span[^>]*>[\s\S]*?<\/span>)/g);
-  code = numParts
-    .map((part) => (part.startsWith("<span") ? part : part.replace(/\b(\d+)\b/g, '<span class="token number">$1</span>')))
+  const split2 = code.split(/(<span[^>]*>[\s\S]*?<\/span>)/g);
+  code = split2
+    .map((p) => (p.startsWith("<span") ? p : p.replace(/\b(\d+)\b/g, '<span class="token number">$1</span>')))
     .join("");
 
   highlightContent.innerHTML = code;
 }
+
+function updateHighlighting() { scheduleHighlighting(); }
 
 /* =========================
    WINDOW STATS
@@ -189,21 +244,27 @@ function updateWindowStats() {
 }
 
 /* =========================
-   TIMER + TRACE
+   TIMER
 ========================= */
-let startTime = null;
+let startTime     = null;
 let timerInterval = null;
-let finished = false;
+let finished      = false;
 
 let totalCharsTyped = 0;
-let lastLength = editor.value.length;
+let lastLength      = editor.value.length;
 
 let currentTrace = 0;
-let targetTrace = 0;
-let traceRAF = null;
+let targetTrace  = 0;
+let traceRAF     = null;
 
 const storedBest = localStorage.getItem(bestKey);
-let bestTime = storedBest ? parseInt(storedBest, 10) : null;
+// FIX: use parseFloat so decimal best times are preserved
+let bestTime = storedBest ? parseFloat(storedBest) : null;
+
+function getElapsedSeconds() {
+  if (!startTime) return 0;
+  return Math.max(1, Math.floor((Date.now() - startTime) / 1000));
+}
 
 function updateTraceProgress() {
   const targetChars = 140;
@@ -214,7 +275,6 @@ function updateTraceProgress() {
     windowEl.classList.remove("is-typing");
     targetTrace = 0;
   }
-
   if (!traceRAF) animateTrace();
 }
 
@@ -231,107 +291,90 @@ function animateTrace() {
   }
 }
 
-function resumeTimer() {
-  if (finished) return;
-  const elapsed = parseInt(bgTimer.textContent || "0", 10) * 1000;
-  startTime = Date.now() - elapsed;
+function startTimerIfNeeded() {
+  if (startTime || finished) return;
+  if (editor.value.trim().length === 0) return;
+  startTime = Date.now();
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = setInterval(() => {
     if (finished) return;
-    bgTimer.textContent = Math.floor((Date.now() - startTime) / 1000).toString();
+    const t = getElapsedSeconds();
+    if (bgTimer.textContent !== t.toString()) {
+      bgTimer.textContent = t;
+      bgTimer.classList.remove("pulse-active");
+      void bgTimer.offsetWidth;
+      bgTimer.classList.add("pulse-active");
+    }
   }, 500);
+  showToast("Race started! Go! 🚀", "var(--accent)");
 }
 
 /* =========================
-   SCROLL MIRROR (FAST)
+   SCROLL MIRROR
 ========================= */
-let scrollRAF = null;
-let pendingTop = 0;
+let scrollRAF   = null;
+let pendingTop  = 0;
 let pendingLeft = 0;
 
-editor.addEventListener(
-  "scroll",
-  () => {
-    pendingTop = editor.scrollTop;
-    pendingLeft = editor.scrollLeft;
-
-    // active line should update on scroll too
-    updateActiveLine();
-
-    if (scrollRAF) return;
-    scrollRAF = requestAnimationFrame(() => {
-      highlightLayer.scrollTop = pendingTop;
-      highlightLayer.scrollLeft = pendingLeft;
-      scrollRAF = null;
-    });
-  },
-  { passive: true }
-);
+editor.addEventListener("scroll", () => {
+  pendingTop  = editor.scrollTop;
+  pendingLeft = editor.scrollLeft;
+  updateActiveLine();
+  if (lineNumbersEl) lineNumbersEl.scrollTop = pendingTop;
+  if (scrollRAF) return;
+  scrollRAF = requestAnimationFrame(() => {
+    highlightLayer.scrollTop  = pendingTop;
+    highlightLayer.scrollLeft = pendingLeft;
+    scrollRAF = null;
+  });
+}, { passive: true });
 
 /* =========================
-   INPUT LISTENER (ONE ONLY)
+   INPUT LISTENER
 ========================= */
 editor.addEventListener("input", () => {
-
-  bgTimer.style.opacity="0.18";
+  // FIX: consistent opacity — always restore to the default visible value
+  bgTimer.style.opacity = "0.5";
   const newLength = editor.value.length;
   if (newLength > lastLength) totalCharsTyped += newLength - lastLength;
   lastLength = newLength;
 
   if (!finished) {
-    if (!startTime && editor.value.trim().length > 0) {
-      startTime = Date.now();
-      if (timerInterval) clearInterval(timerInterval);
-      timerInterval = setInterval(() => {
-        if (finished) return;
-        const t = Math.floor((Date.now() - startTime) / 1000);
-        if (bgTimer.textContent !== t.toString()) {
-          bgTimer.textContent = t;
-          bgTimer.classList.remove("pulse-active");
-          void bgTimer.offsetWidth;
-          bgTimer.classList.add("pulse-active");
-        }
-      }, 500);
-      showToast("Race started! Go! 🚀", "var(--accent)");
-    }
+    startTimerIfNeeded();
     updateTraceProgress();
   }
 
   updateHighlighting();
   updateWindowStats();
   updateActiveLine();
-});
-editor.addEventListener("blur", () => {
-  bgTimer.style.opacity = "0.25";
+  updateLineNumbers();
 });
 
-editor.addEventListener("click", updateActiveLine);
-editor.addEventListener("keyup", updateActiveLine);
+editor.addEventListener("blur",  () => { bgTimer.style.opacity = "0.25"; });
+editor.addEventListener("focus", () => { bgTimer.style.opacity = "0.5"; });
+editor.addEventListener("click", () => { updateActiveLine(); updateLineNumbers(); });
+editor.addEventListener("keyup", () => { updateActiveLine(); updateLineNumbers(); });
 window.addEventListener("resize", updateActiveLine);
 
 /* =========================
-   KEYBOARD LOGIC (UNDO SAFE)
+   KEYBOARD LOGIC
 ========================= */
 editor.addEventListener("keydown", (e) => {
-  // Always allow undo/redo
-  if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) {
-    return;
-  }
-
-  if (finished) {
-    if (e.ctrlKey && e.key === "Enter") e.preventDefault();
-    return;
-  }
+  if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) return;
 
   if (e.ctrlKey && e.key === "Enter") {
     e.preventDefault();
-    runCode();
+    if (!startTime && !finished) {
+      showToast("✏️ Start typing your code first!", "#f59e0b");
+      return;
+    }
+    if (!finished) runCode();
     return;
   }
 
-  const start = editor.selectionStart;
+  if (finished) return;
 
-  // Skip over closing chars
+  const start   = editor.selectionStart;
   const closers = ["}", ")", "]", '"', "'"];
   if (closers.includes(e.key) && editor.value[start] === e.key) {
     e.preventDefault();
@@ -340,7 +383,6 @@ editor.addEventListener("keydown", (e) => {
     return;
   }
 
-  // Auto-pair brackets
   const pairs = { "{": "}", "(": ")", "[": "]" };
   if (pairs[e.key]) {
     e.preventDefault();
@@ -353,31 +395,26 @@ editor.addEventListener("keydown", (e) => {
     return;
   }
 
-  // Enter handling: indentation + between {}
   if (e.key === "Enter") {
     e.preventDefault();
-
-    const caret = editor.selectionStart;
-    const before = editor.value.slice(0, caret);
+    const caret     = editor.selectionStart;
+    const before    = editor.value.slice(0, caret);
     const lineStart = before.lastIndexOf("\n") + 1;
-    const currentLine = before.slice(lineStart);
-    const indent = (currentLine.match(/^(\s*)/) || ["", ""])[1];
-
+    const currLine  = before.slice(lineStart);
+    const indent    = (currLine.match(/^(\s*)/) || ["", ""])[1];
     if (editor.value[caret - 1] === "{" && editor.value[caret] === "}") {
-      const innerIndent = indent + "    ";
-      insertTextAtSelection("\n" + innerIndent + "\n" + indent, "end");
-      editor.selectionStart = editor.selectionEnd = caret + 1 + innerIndent.length;
+      const inner = indent + "    ";
+      insertTextAtSelection("\n" + inner + "\n" + indent, "end");
+      editor.selectionStart = editor.selectionEnd = caret + 1 + inner.length;
     } else {
       insertTextAtSelection("\n" + indent, "end");
     }
-
     updateHighlighting();
     updateWindowStats();
     updateActiveLine();
     return;
   }
 
-  // Tab = 4 spaces
   if (e.key === "Tab") {
     e.preventDefault();
     insertTextAtSelection("    ", "end");
@@ -388,12 +425,9 @@ editor.addEventListener("keydown", (e) => {
   }
 });
 
-// Block paste/drop/context menu
-editor.addEventListener("paste", (e) => {
-  e.preventDefault();
-  showToast("🚫 Paste is disabled — type it!", "#ef4444");
-});
-editor.addEventListener("drop", (e) => e.preventDefault());
+editor.addEventListener("paste",       (e) => { e.preventDefault(); showToast("🚫 Paste is disabled — type it!", "#ef4444"); });
+editor.addEventListener("dragover",    (e) => e.preventDefault());
+editor.addEventListener("drop",        (e) => { e.preventDefault(); showToast("🚫 Drop is disabled — type it!", "#ef4444"); });
 editor.addEventListener("contextmenu", (e) => e.preventDefault());
 
 /* =========================
@@ -401,91 +435,90 @@ editor.addEventListener("contextmenu", (e) => e.preventDefault());
 ========================= */
 let javaLanguageId = null;
 
-async function resolveJavaLanguageIdVerbose() {
-  let res;
-  try {
-    res = await fetch(`${JUDGE0_BASE}/languages`, { cache: "no-store" });
-  } catch (err) {
-    throw new Error(`Cannot reach ${JUDGE0_BASE}/languages (network/CORS). ${err?.message || err}`);
-  }
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Judge0 /languages failed: HTTP ${res.status} ${res.statusText}. ${text.slice(0, 200)}`);
-  }
-
-  const langs = await res.json();
-  const javaLangs = langs.filter((l) => typeof l?.name === "string" && l.name.toLowerCase().includes("java"));
-  if (!javaLangs.length) throw new Error("Java not found in Judge0 /languages response.");
-
-  // Prefer OpenJDK if present
-  const preferred = javaLangs.filter((l) => l.name.toLowerCase().includes("openjdk"));
-  const pool = preferred.length ? preferred : javaLangs;
-
-  pool.sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
-  return pool[0].id;
-}
-
-async function getJavaLanguageIdCached() {
-  if (javaLanguageId) return javaLanguageId;
-
+async function resolveJavaLanguageId() {
   const cached = localStorage.getItem(JAVA_LANG_CACHE_KEY);
   if (cached && !Number.isNaN(parseInt(cached, 10))) {
-    javaLanguageId = parseInt(cached, 10);
-    return javaLanguageId;
+    return parseInt(cached, 10);
   }
 
-  const id = await resolveJavaLanguageIdVerbose();
-  javaLanguageId = id;
-  localStorage.setItem(JAVA_LANG_CACHE_KEY, String(id));
-  return id;
+  try {
+    const res = await fetch(`${JUDGE0_BASE}/languages`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const langs     = await res.json();
+    const javaLangs = langs.filter((l) => typeof l?.name === "string" && l.name.toLowerCase().includes("java"));
+    if (javaLangs.length) {
+      const preferred = javaLangs.filter((l) => l.name.toLowerCase().includes("openjdk"));
+      const pool      = preferred.length ? preferred : javaLangs;
+      pool.sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
+      const id = pool[0].id;
+      localStorage.setItem(JAVA_LANG_CACHE_KEY, String(id));
+      return id;
+    }
+  } catch (err) {
+    console.warn("Could not fetch Judge0 languages, using fallback ID.", err);
+  }
+
+  for (const fallbackId of JAVA_FALLBACK_IDS) {
+    try {
+      const testRes = await runOnJudge0({
+        source_code: `class Main{public static void main(String[]a){System.out.println("ok");}}`,
+        stdin: "",
+        language_id: fallbackId,
+      });
+      if (testRes?.stdout?.trim() === "ok") {
+        localStorage.setItem(JAVA_LANG_CACHE_KEY, String(fallbackId));
+        return fallbackId;
+      }
+    } catch (_) { /* try next */ }
+  }
+
+  throw new Error("Java compiler not available. Check Judge0 endpoint.");
+}
+
+async function getJavaLanguageId() {
+  if (javaLanguageId) return javaLanguageId;
+  javaLanguageId = await resolveJavaLanguageId();
+  return javaLanguageId;
 }
 
 async function runOnJudge0({ source_code, stdin, language_id }) {
-  // Submit quickly
   const createRes = await fetch(`${JUDGE0_BASE}/submissions?base64_encoded=false&wait=false`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ language_id, source_code, stdin: stdin || "" }),
   });
-
   if (!createRes.ok) throw new Error("Failed to create submission");
   const { token } = await createRes.json();
 
-  // Poll for result
   const fields = "stdout,stderr,compile_output,status_id,status";
-  let delay = 150;
-
+  let delay    = 150;
   for (let i = 0; i < 30; i++) {
     await new Promise((r) => setTimeout(r, delay));
     const res = await fetch(`${JUDGE0_BASE}/submissions/${token}?base64_encoded=false&fields=${fields}`);
     if (!res.ok) throw new Error("Failed to fetch submission result");
     const result = await res.json();
-
-    if (result.status_id > 2) return result; // done
+    if (result.status_id > 2) return result;
     delay = Math.min(800, delay + 100);
   }
-
   throw new Error("Judge0 timed out");
 }
 
-async function warmUpCompiler() {
-  try {
-    const id = await getJavaLanguageIdCached();
-    await runOnJudge0({
+function warmUpCompiler() {
+  if (sessionStorage.getItem("compileRace::warmedUp")) return;
+  sessionStorage.setItem("compileRace::warmedUp", "1");
+  getJavaLanguageId()
+    .then((id) => runOnJudge0({
       source_code: `class Main{public static void main(String[]a){}}`,
       stdin: "",
       language_id: id,
-    });
-  } catch (_) {
-    // ignore warmup failures
-  }
+    }))
+    .catch(() => {});
 }
 
-// Quick tests: first 2 only
+// FIX: deduplicate quick vs full — only run full batch once if tests.length > 2
 function splitTests(tests) {
   if (!Array.isArray(tests)) return { quick: [], full: [] };
-  if (tests.length <= 2) return { quick: tests, full: tests };
+  if (tests.length <= 2) return { quick: tests, full: [] }; // full is empty → skip second run
   return { quick: tests.slice(0, 2), full: tests };
 }
 
@@ -495,17 +528,20 @@ function splitTests(tests) {
 function showTestResults(results) {
   if (!testStatusCard || !testStatusList) return;
   testStatusCard.style.display = "block";
-  testStatusList.innerHTML = results
-    .map(
-      (r) => `
-      <div class="test-result-row ${r.passed ? "pass" : "fail"}">
-        <span>${r.passed ? "✅" : "❌"}</span>
-        <span>${escapeHtml(r.label)}</span>
-        ${r.error ? `<span class="test-error">${escapeHtml(r.error)}</span>` : ""}
-      </div>
-    `
-    )
-    .join("");
+  // FIX: use .test-diff-row class (renamed in style.css to avoid collision)
+  testStatusList.innerHTML = results.map((r) => `
+    <div class="test-result-row ${r.passed ? "pass" : "fail"}">
+      <span>${r.passed ? "✅" : "❌"}</span>
+      <span class="test-label">${escapeHtml(r.label)}</span>
+      ${r.error ? `<span class="test-error">${escapeHtml(r.error)}</span>` : ""}
+      ${(!r.passed && r.expected !== undefined && r.actual !== undefined && !r.error) ? `
+        <div class="test-diff">
+          <div class="test-diff-row"><span class="diff-key">Expected:</span><code class="diff-val expected">${escapeHtml(r.expected)}</code></div>
+          <div class="test-diff-row"><span class="diff-key">Got:</span><code class="diff-val actual">${escapeHtml(r.actual)}</code></div>
+        </div>
+      ` : ""}
+    </div>
+  `).join("");
 }
 
 /* =========================
@@ -538,9 +574,8 @@ function createVictoryOverlay() {
   });
 
   document.getElementById("victoryNextBtn").addEventListener("click", () => {
-    const nextIdx = getSelectedQuestionIndex() + 1;
     const qs = window.QUESTIONS || [];
-    if (nextIdx < qs.length) location.href = `race.html?q=${nextIdx}`;
+    if (currentIdx + 1 < qs.length) location.href = `race.html?q=${currentIdx + 1}`;
     else location.href = "index.html";
   });
 }
@@ -553,7 +588,7 @@ function launchConfetti(count = 120) {
   for (let i = 0; i < count; i++) {
     const p = document.createElement("span");
     p.style.left = Math.random() * 100 + "vw";
-    p.style.setProperty("--d", 900 + Math.random() * 1100 + "ms");
+    p.style.setProperty("--d",     900 + Math.random() * 1100 + "ms");
     p.style.setProperty("--delay", Math.random() * 400 + "ms");
     p.style.background = colors[Math.floor(Math.random() * colors.length)];
     conf.appendChild(p);
@@ -563,28 +598,17 @@ function launchConfetti(count = 120) {
 function showVictoryAnimation({ time, cps, best }) {
   if (!victoryOverlay) createVictoryOverlay();
   document.getElementById("vTime").textContent = `${time}s`;
-  document.getElementById("vCps").textContent = `${cps}`;
-  document.getElementById("vBest").textContent = best ? `${best}s` : "—";
+  document.getElementById("vCps").textContent  = `${cps}`;
+  document.getElementById("vBest").textContent = best !== null ? `${best}s` : "—";
   document.getElementById("victorySub").textContent = "All tests passed. GG 🎉";
-
-  const card = victoryOverlay.querySelector(".victory-card");
-  const clone = card.cloneNode(true);
-  card.parentNode.replaceChild(clone, card);
-
-  clone.querySelector("#victoryNextBtn").addEventListener("click", () => {
-    const nextIdx = getSelectedQuestionIndex() + 1;
-    const qs = window.QUESTIONS || [];
-    if (nextIdx < qs.length) location.href = `race.html?q=${nextIdx}`;
-    else location.href = "index.html";
-  });
 
   victoryOverlay.classList.add("show");
   launchConfetti(140);
-  setTimeout(() => victoryOverlay.classList.remove("show"), 4000);
+  setTimeout(() => victoryOverlay.classList.remove("show"), 4500);
 }
 
 /* =========================
-   RUN CODE (QUICK THEN FULL)
+   RUN CODE
 ========================= */
 let isRunning = false;
 
@@ -603,27 +627,29 @@ async function runBatch(batch, labelOffset = 0) {
       });
     } catch (e) {
       console.error(e);
-      batchResults.push({ passed: false, label: `Test ${labelOffset + i + 1}`, error: "Run error" });
+      batchResults.push({ passed: false, label: `Test ${labelOffset + i + 1}`, error: "Network/run error" });
       return { passed: false, results: batchResults };
     }
 
-    const stdout = normalizeOut(result.stdout);
-    const stderr = normalizeOut(result.stderr);
+    const stdout     = normalizeOut(result.stdout);
+    const stderr     = normalizeOut(result.stderr);
     const compileOut = normalizeOut(result.compile_output);
-    const expected = normalizeOut(t.out);
+    const expected   = normalizeOut(t.out);
 
     if (compileOut) {
-      batchResults.push({ passed: false, label: `Test ${labelOffset + i + 1}`, error: "Compilation Error" });
+      const firstLine = compileOut.split("\n").find((l) => l.includes("error")) || compileOut.split("\n")[0];
+      batchResults.push({ passed: false, label: `Test ${labelOffset + i + 1}`, error: `Compile: ${firstLine.trim().slice(0, 80)}` });
       return { passed: false, results: batchResults };
     }
 
     if (stderr) {
-      batchResults.push({ passed: false, label: `Test ${labelOffset + i + 1}`, error: "Runtime Error" });
+      const firstLine = stderr.split("\n")[0];
+      batchResults.push({ passed: false, label: `Test ${labelOffset + i + 1}`, error: `Runtime: ${firstLine.slice(0, 80)}` });
       return { passed: false, results: batchResults };
     }
 
     const passed = stdout === expected;
-    batchResults.push({ passed, label: `Test ${labelOffset + i + 1}` });
+    batchResults.push({ passed, label: `Test ${labelOffset + i + 1}`, expected, actual: stdout });
 
     if (!passed) return { passed: false, results: batchResults };
   }
@@ -631,29 +657,41 @@ async function runBatch(batch, labelOffset = 0) {
   return { passed: true, results: batchResults };
 }
 
+function resetRunBtn() {
+  const submitMain = runBtn?.querySelector(".sb-submit-main");
+  const submitIcon = runBtn?.querySelector(".sb-submit-icon");
+  if (runBtn) {
+    runBtn.disabled = false;
+    runBtn.classList.remove("loading");
+  }
+  if (submitMain) submitMain.textContent = "Submit Code";
+  if (submitIcon) submitIcon.textContent = "▶";
+}
+
 async function runCode() {
   if (finished || !startTime || isRunning) return;
   isRunning = true;
 
-  runBtn.disabled = true;
-  runBtn.classList.add("loading");
+  const submitMain = runBtn?.querySelector(".sb-submit-main");
+  const submitIcon = runBtn?.querySelector(".sb-submit-icon");
 
-  clearInterval(timerInterval);
-  const finalTime = Math.max(1, Math.floor((Date.now() - startTime) / 1000));
-  bgTimer.textContent = finalTime;
+  if (runBtn) {
+    runBtn.disabled = true;
+    runBtn.classList.add("loading");
+  }
+  if (submitMain) submitMain.textContent = "Running tests...";
+  if (submitIcon) submitIcon.textContent = "⏳";
 
   if (testStatusCard) testStatusCard.style.display = "none";
   if (testStatusList) testStatusList.innerHTML = "";
 
   try {
     showToast("🔍 Connecting to compiler...", "#3b82f6");
-    javaLanguageId = await getJavaLanguageIdCached();
+    javaLanguageId = await getJavaLanguageId();
   } catch (e) {
     console.error(e);
     showToast(`❌ Compiler unavailable: ${e.message || e}`, "#ef4444");
-    resumeTimer();
-    runBtn.disabled = false;
-    runBtn.classList.remove("loading");
+    resetRunBtn();
     isRunning = false;
     return;
   }
@@ -664,49 +702,49 @@ async function runCode() {
 
   const { quick, full } = splitTests(allTests);
 
-  // Phase 1: quick
   showToast(`🧪 Quick tests (${quick.length})...`, "#f59e0b");
   const quickRun = await runBatch(quick, 0);
   showTestResults(quickRun.results);
 
   if (!quickRun.passed) {
     showToast("❌ Failed quick tests", "#ef4444");
-    resumeTimer();
-    runBtn.disabled = false;
-    runBtn.classList.remove("loading");
+    resetRunBtn();
     isRunning = false;
     return;
   }
 
-  // Phase 2: full (only if more than quick)
-  if (full.length > quick.length) {
+  // FIX: only run full batch if it's different from quick (i.e. more tests exist)
+  if (full.length > 0) {
     showToast(`✅ Quick pass — Full tests (${full.length})...`, "var(--accent)");
     const fullRun = await runBatch(full, 0);
     showTestResults(fullRun.results);
 
     if (!fullRun.passed) {
       showToast("❌ Failed full tests", "#ef4444");
-      resumeTimer();
-      runBtn.disabled = false;
-      runBtn.classList.remove("loading");
+      resetRunBtn();
       isRunning = false;
       return;
     }
   }
 
   // ✅ All passed
-  finished = true;
+  clearInterval(timerInterval);
+  const finalTime = getElapsedSeconds();
+  bgTimer.textContent = finalTime;
+
+  finished  = true;
   isRunning = false;
 
   windowEl.classList.add("is-complete");
   windowEl.style.setProperty("--trace", "1");
-  editor.disabled = true;
+  editor.disabled      = true;
   editor.style.opacity = "0.6";
-  runBtn.disabled = true;
+  if (runBtn) runBtn.disabled = true;
 
   const cps = (totalCharsTyped / finalTime).toFixed(2);
 
-  if (!bestTime || finalTime < bestTime) {
+  // FIX: use !== null so a bestTime of 0 is never incorrectly replaced
+  if (bestTime === null || finalTime < bestTime) {
     bestTime = finalTime;
     localStorage.setItem(bestKey, String(finalTime));
   }
@@ -718,83 +756,100 @@ async function runCode() {
 /* =========================
    CONTROLS
 ========================= */
-if (runBtn) runBtn.addEventListener("click", runCode);
+if (runBtn) {
+  runBtn.addEventListener("click", () => {
+    if (!startTime && !finished) {
+      showToast("✏️ Start typing your code first!", "#f59e0b");
+      return;
+    }
+    runCode();
+  });
+}
 
 if (restartBtn) {
+  // FIX: replaced confirm() (blocked in iframes) with a two-click confirm pattern
   restartBtn.addEventListener("click", () => {
-    if (!confirm("Restart the challenge?")) return;
+    if (restartBtn.dataset.confirm === "1") {
+      restartBtn.dataset.confirm = "";
+      restartBtn.textContent = "↺ Restart";
 
-    clearInterval(timerInterval);
-    startTime = null;
-    finished = false;
-    isRunning = false;
-    totalCharsTyped = 0;
+      clearInterval(timerInterval);
+      startTime        = null;
+      finished         = false;
+      isRunning        = false;
+      totalCharsTyped  = 0;
 
-    bgTimer.textContent = "0";
-    bgTimer.classList.remove("pulse-active");
+      bgTimer.textContent = "0";
+      bgTimer.classList.remove("pulse-active");
+      bgTimer.style.opacity = "0.5";
 
-    windowEl.classList.remove("is-complete", "is-typing");
-    windowEl.style.setProperty("--trace", "0");
-    currentTrace = 0;
-    targetTrace = 0;
+      windowEl.classList.remove("is-complete", "is-typing");
+      windowEl.style.setProperty("--trace", "0");
+      currentTrace = 0;
+      targetTrace  = 0;
 
-    editor.disabled = false;
-    editor.style.opacity = "1";
-    runBtn.disabled = false;
-    runBtn.classList.remove("loading");
+      editor.disabled      = false;
+      editor.style.opacity = "1";
+      if (runBtn) {
+        runBtn.disabled = false;
+        runBtn.classList.remove("loading");
+      }
 
-    if (testStatusCard) testStatusCard.style.display = "none";
-    if (testStatusList) testStatusList.innerHTML = "";
+      if (testStatusCard) testStatusCard.style.display = "none";
+      if (testStatusList) testStatusList.innerHTML = "";
 
-    editor.value = buildStarterCode(currentQuestion);
-    lastLength = editor.value.length;
+      editor.value = buildStarterCode(currentQuestion);
+      lastLength   = editor.value.length;
 
-    updateHighlighting();
-    updateWindowStats();
-    updateActiveLine();
-    editor.focus();
+      updateHighlighting();
+      updateWindowStats();
+      updateActiveLine();
+      updateLineNumbers();
+      editor.focus();
+    } else {
+      restartBtn.dataset.confirm = "1";
+      restartBtn.textContent = "Sure? Click again";
+      restartBtn.style.borderColor = "#fbbf24";
+      restartBtn.style.color = "#fbbf24";
+      setTimeout(() => {
+        restartBtn.dataset.confirm = "";
+        restartBtn.textContent = "↺ Restart";
+        restartBtn.style.borderColor = "";
+        restartBtn.style.color = "";
+      }, 2500);
+    }
   });
 }
 
-if (homeBtn) {
-  homeBtn.addEventListener("click", () => {
-    location.href = "index.html";
-  });
-}
-
-/* ===============================
-   Accent color persistence (Home + Race)
-================================= */
-(function initAccentColor() {
-  const saved = localStorage.getItem("compileRaceAccent");
-  if (saved) {
-    document.documentElement.style.setProperty("--accent", saved);
-    document.documentElement.style.setProperty("--accent-glow", saved + "44");
-  }
-
-  const picker = document.getElementById("colorPicker");
-  const btn = document.getElementById("customizeBtn");
-
-  if (picker) {
-    const current = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#4ade80";
-    picker.value = saved || current;
-
-    picker.addEventListener("input", (e) => {
-      const c = e.target.value;
-      document.documentElement.style.setProperty("--accent", c);
-      document.documentElement.style.setProperty("--accent-glow", c + "44");
-      localStorage.setItem("compileRaceAccent", c);
-    });
-  }
-
-  if (btn && picker) {
-    btn.addEventListener("click", () => picker.click());
-  }
-})();
+if (homeBtn) homeBtn.addEventListener("click", () => { location.href = "index.html"; });
 
 document.querySelectorAll(".logo-clickable").forEach((el) => {
   el.addEventListener("click", () => (location.href = "index.html"));
 });
+
+/* =========================
+   ACCENT COLOR
+   FIX: was defined twice — removed duplicate, kept single instance
+========================= */
+(function initAccentColor() {
+  const saved = localStorage.getItem("compileRaceAccent");
+  if (saved) {
+    document.documentElement.style.setProperty("--accent",      saved);
+    document.documentElement.style.setProperty("--accent-glow", saved + "44");
+  }
+  const picker = document.getElementById("colorPicker");
+  const btn    = document.getElementById("customizeBtn");
+  if (picker) {
+    picker.value = saved || "#4ade80";
+    picker.addEventListener("input", (e) => {
+      const c = e.target.value;
+      document.documentElement.style.setProperty("--accent",      c);
+      document.documentElement.style.setProperty("--accent-glow", c + "44");
+      localStorage.setItem("compileRaceAccent", c);
+    });
+  }
+  if (btn && picker) btn.addEventListener("click", () => picker.click());
+})();
 
 /* =========================
    ONLOAD
@@ -803,7 +858,8 @@ window.addEventListener("load", () => {
   updateHighlighting();
   updateWindowStats();
   updateActiveLine();
+  updateLineNumbers();
   createVictoryOverlay();
   editor.focus();
-  warmUpCompiler(); // warmup once ✅
+  warmUpCompiler();
 });

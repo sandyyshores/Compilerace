@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="CompileRace – Sign in to save your best times and track your Java speed coding progress." />
+  <title>CompileRace — Login</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="login.css" />
+</head>
+<body>
+
+<header class="header">
+  <div class="brand">
+    <div class="logo">Compile<span>Race</span></div>
+    <div class="badge">⚡ Java Speed Coding</div>
+  </div>
+
+  <div class="header-controls">
+    <input type="color" id="colorPicker" />
+    <button class="customize-btn" id="customizeBtn">🎨 Customize</button>
+  </div>
+</header>
+
+<main class="page">
+  <section class="card">
+
+    <div class="card-glow"></div>
+
+    <div class="card-icon">⚡</div>
+    <h1>Welcome back</h1>
+    <p class="muted">Sign in to save your best times on this device.</p>
+
+    <form id="loginForm" class="form" autocomplete="on" novalidate>
+      <div class="field-group">
+        <label class="label" for="email">Email</label>
+        <input class="input" id="email" type="email" placeholder="you@example.com" required autocomplete="email" />
+      </div>
+
+      <div class="field-group">
+        <label class="label" for="password">Password</label>
+        <div class="input-wrap">
+          <input class="input" id="password" type="password" placeholder="••••••••" required minlength="4" autocomplete="current-password" />
+          <button type="button" class="toggle-pw" id="togglePw" aria-label="Toggle password visibility" tabindex="-1">👁</button>
+        </div>
+      </div>
+
+      <button class="primary-btn" type="submit">
+        <span class="btn-text">Login →</span>
+        <span class="btn-spinner" id="btnSpinner" aria-hidden="true"></span>
+      </button>
+
+      <div class="divider"><span>or</span></div>
+
+      <button class="ghost-btn demo-btn" type="button" id="demoBtn">🚀 Use Demo Account</button>
+
+      <div class="row-bottom">
+        <span class="tiny">No account?</span>
+        <!-- FIX: "Skip for now" now respects the ?next= param so users land on the right page -->
+        <a class="link" id="skipLink" href="index.html">Skip for now →</a>
+      </div>
+
+      <div class="msg" id="msg" aria-live="polite" role="alert"></div>
+    </form>
+
+    <div class="foot">
+      <span class="tiny">🔒 Local-only auth — no server, GitHub Pages friendly.</span>
+    </div>
+
+  </section>
+</main>
+
+<script>
+  // FIX: make "Skip for now" go to the correct ?next= destination
+  (function fixSkipLink() {
+    const params = new URLSearchParams(location.search);
+    const next   = params.get("next");
+    if (next) {
+      const skip = document.getElementById("skipLink");
+      if (skip) skip.href = decodeURIComponent(next);
+    }
+  })();
+</script>
+<script src="login.js"></script>
+</body>
+</html>
