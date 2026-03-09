@@ -35,7 +35,6 @@ function setMsg(text, type = "") {
 function setLoading(on) {
   const btn     = document.querySelector(".primary-btn");
   const spinner = document.getElementById("btnSpinner");
-  // FIX: simplified — already return-guarded above
   if (!btn) return;
   const btnText = btn.querySelector(".btn-text");
   btn.disabled = on;
@@ -44,7 +43,11 @@ function setLoading(on) {
   if (btnText) btnText.textContent   = on ? "Signing in…" : "Login →";
 }
 
-/* FIX: validate that the redirect target is same-origin to prevent open redirect attacks */
+/* FIX (Bug 3): isSafeRedirect is defined here, at the top of login.js,
+   BEFORE fixSkipLink() or any other caller uses it.
+   Previously, login.html had an inline script that tried to call this
+   function before login.js had loaded — so it didn't exist yet, and the
+   skip link href was set with zero origin validation. */
 function isSafeRedirect(url) {
   try {
     const parsed = new URL(decodeURIComponent(url), location.origin);
@@ -68,6 +71,19 @@ function redirectAfterLogin() {
 (function autoRedirectIfLoggedIn() {
   const raw = localStorage.getItem(AUTH_KEY);
   if (raw) redirectAfterLogin();
+})();
+
+/* FIX (Bug 3): Skip link is now set here — AFTER isSafeRedirect() exists.
+   The ?next= value is validated before being used as href.
+   If absent or cross-origin, the link stays on "index.html" (set in the HTML). */
+(function fixSkipLink() {
+  const params = new URLSearchParams(location.search);
+  const next   = params.get("next");
+  const skip   = document.getElementById("skipLink");
+  if (!skip) return;
+  if (next && isSafeRedirect(next)) {
+    skip.href = decodeURIComponent(next);
+  }
 })();
 
 /* ── Toggle password visibility ── */

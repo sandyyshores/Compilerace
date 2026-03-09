@@ -1,5 +1,5 @@
 // ===============================
-// CompileRace — script.js (FIXED)
+// CompileRace — script.js (FIXED v2)
 // ===============================
 
 /* =========================
@@ -257,8 +257,12 @@ let currentTrace = 0;
 let targetTrace  = 0;
 let traceRAF     = null;
 
+// FIX (Bug 2): session generation counter — incremented on restart
+// prevents a stale in-flight runCode() from committing results after restart
+let sessionGen = 0;
+
 const storedBest = localStorage.getItem(bestKey);
-// FIX: use parseFloat so decimal best times are preserved
+// parseFloat preserves decimal best times
 let bestTime = storedBest ? parseFloat(storedBest) : null;
 
 function getElapsedSeconds() {
@@ -333,7 +337,6 @@ editor.addEventListener("scroll", () => {
    INPUT LISTENER
 ========================= */
 editor.addEventListener("input", () => {
-  // FIX: consistent opacity — always restore to the default visible value
   bgTimer.style.opacity = "0.5";
   const newLength = editor.value.length;
   if (newLength > lastLength) totalCharsTyped += newLength - lastLength;
@@ -515,11 +518,11 @@ function warmUpCompiler() {
     .catch(() => {});
 }
 
-// FIX: deduplicate quick vs full — only run full batch once if tests.length > 2
+// FIX (Bug 4): full = tests.slice(2) so tests 1+2 are NOT re-run in the full batch
 function splitTests(tests) {
   if (!Array.isArray(tests)) return { quick: [], full: [] };
-  if (tests.length <= 2) return { quick: tests, full: [] }; // full is empty → skip second run
-  return { quick: tests.slice(0, 2), full: tests };
+  if (tests.length <= 2) return { quick: tests, full: [] };
+  return { quick: tests.slice(0, 2), full: tests.slice(2) };
 }
 
 /* =========================
@@ -528,7 +531,6 @@ function splitTests(tests) {
 function showTestResults(results) {
   if (!testStatusCard || !testStatusList) return;
   testStatusCard.style.display = "block";
-  // FIX: use .test-diff-row class (renamed in style.css to avoid collision)
   testStatusList.innerHTML = results.map((r) => `
     <div class="test-result-row ${r.passed ? "pass" : "fail"}">
       <span>${r.passed ? "✅" : "❌"}</span>
@@ -562,7 +564,7 @@ function createVictoryOverlay() {
       <div class="victory-stats">
         <div class="victory-pill"><div class="k">Time</div><div class="v" id="vTime">0s</div></div>
         <div class="victory-pill"><div class="k">CPS</div><div class="v" id="vCps">0.00</div></div>
-        <div class="victory-pill"><div class="k">Best</div><div class="v" id="vBest">—</div></div>
+        <div class="victory-pill"><div class="k" id="vBestLabel">Best</div><div class="v" id="vBest">—</div></div>
       </div>
       <button class="victory-next-btn" id="victoryNextBtn">Next Challenge →</button>
     </div>
@@ -595,12 +597,16 @@ function launchConfetti(count = 120) {
   }
 }
 
-function showVictoryAnimation({ time, cps, best }) {
+// FIX (Bug 5): isNewBest flag — shows "New Best 🎉" label when personal record is broken
+function showVictoryAnimation({ time, cps, best, isNewBest }) {
   if (!victoryOverlay) createVictoryOverlay();
-  document.getElementById("vTime").textContent = `${time}s`;
-  document.getElementById("vCps").textContent  = `${cps}`;
-  document.getElementById("vBest").textContent = best !== null ? `${best}s` : "—";
-  document.getElementById("victorySub").textContent = "All tests passed. GG 🎉";
+  document.getElementById("vTime").textContent     = `${time}s`;
+  document.getElementById("vCps").textContent      = `${cps}`;
+  document.getElementById("vBest").textContent     = best !== null ? `${best}s` : "—";
+  document.getElementById("vBestLabel").textContent = isNewBest ? "New Best 🎉" : "Best";
+  document.getElementById("victorySub").textContent = isNewBest
+    ? "New personal best! 🔥"
+    : "All tests passed. GG 🎉";
 
   victoryOverlay.classList.add("show");
   launchConfetti(140);
@@ -608,7 +614,7 @@ function showVictoryAnimation({ time, cps, best }) {
 }
 
 /* =========================
-   RUN CODE
+   RUN BATCH
 ========================= */
 let isRunning = false;
 
@@ -668,9 +674,26 @@ function resetRunBtn() {
   if (submitIcon) submitIcon.textContent = "▶";
 }
 
+/* =========================
+   RUN CODE
+   FIX (Bug 1): Timer is frozen the moment Submit is clicked.
+                frozenTime is captured BEFORE any awaits so API latency
+                does NOT inflate the recorded time.
+   FIX (Bug 2): sessionGen guard — if the student restarts mid-submission,
+                the stale async bails out without touching any state.
+========================= */
 async function runCode() {
   if (finished || !startTime || isRunning) return;
   isRunning = true;
+
+  // FIX (Bug 1): Stop the timer and snapshot coding time RIGHT NOW,
+  // before any network calls. API latency won't be counted.
+  clearInterval(timerInterval);
+  const frozenTime = getElapsedSeconds();
+  bgTimer.textContent = frozenTime;
+
+  // FIX (Bug 2): Stamp this invocation's generation
+  const myGen = sessionGen;
 
   const submitMain = runBtn?.querySelector(".sb-submit-main");
   const submitIcon = runBtn?.querySelector(".sb-submit-icon");
@@ -690,20 +713,27 @@ async function runCode() {
     javaLanguageId = await getJavaLanguageId();
   } catch (e) {
     console.error(e);
+    if (sessionGen !== myGen) return; // FIX (Bug 2): restarted while awaiting
     showToast(`❌ Compiler unavailable: ${e.message || e}`, "#ef4444");
     resetRunBtn();
     isRunning = false;
     return;
   }
 
+  if (sessionGen !== myGen) return; // FIX (Bug 2)
+
   const allTests = currentQuestion.tests?.length
     ? currentQuestion.tests
     : [{ stdin: currentQuestion.stdin || "", out: currentQuestion.expectedOutput || "" }];
 
+  // FIX (Bug 4): full = tests.slice(2) — tests 1 & 2 are NOT re-run
   const { quick, full } = splitTests(allTests);
 
   showToast(`🧪 Quick tests (${quick.length})...`, "#f59e0b");
   const quickRun = await runBatch(quick, 0);
+
+  if (sessionGen !== myGen) return; // FIX (Bug 2)
+
   showTestResults(quickRun.results);
 
   if (!quickRun.passed) {
@@ -713,11 +743,14 @@ async function runCode() {
     return;
   }
 
-  // FIX: only run full batch if it's different from quick (i.e. more tests exist)
   if (full.length > 0) {
     showToast(`✅ Quick pass — Full tests (${full.length})...`, "var(--accent)");
-    const fullRun = await runBatch(full, 0);
-    showTestResults(fullRun.results);
+    // FIX (Bug 4): labelOffset = 2 so labels read "Test 3", "Test 4", etc.
+    const fullRun = await runBatch(full, 2);
+
+    if (sessionGen !== myGen) return; // FIX (Bug 2)
+
+    showTestResults([...quickRun.results, ...fullRun.results]);
 
     if (!fullRun.passed) {
       showToast("❌ Failed full tests", "#ef4444");
@@ -728,12 +761,13 @@ async function runCode() {
   }
 
   // ✅ All passed
-  clearInterval(timerInterval);
-  const finalTime = getElapsedSeconds();
-  bgTimer.textContent = finalTime;
+  if (sessionGen !== myGen) return; // FIX (Bug 2): final guard before committing
 
   finished  = true;
   isRunning = false;
+
+  // FIX (Bug 1): display and use the frozen time, not live elapsed
+  bgTimer.textContent = frozenTime;
 
   windowEl.classList.add("is-complete");
   windowEl.style.setProperty("--trace", "1");
@@ -741,16 +775,18 @@ async function runCode() {
   editor.style.opacity = "0.6";
   if (runBtn) runBtn.disabled = true;
 
-  const cps = (totalCharsTyped / finalTime).toFixed(2);
+  const cps = (totalCharsTyped / frozenTime).toFixed(2);
 
-  // FIX: use !== null so a bestTime of 0 is never incorrectly replaced
-  if (bestTime === null || finalTime < bestTime) {
-    bestTime = finalTime;
-    localStorage.setItem(bestKey, String(finalTime));
+  // FIX (Bug 5): check BEFORE overwriting bestTime
+  const isNewBest = (bestTime === null || frozenTime < bestTime);
+
+  if (bestTime === null || frozenTime < bestTime) {
+    bestTime = frozenTime;
+    localStorage.setItem(bestKey, String(frozenTime));
   }
 
-  showToast(`✅ Accepted · ${finalTime}s · ${cps} CPS`, "var(--accent)");
-  showVictoryAnimation({ time: finalTime, cps, best: bestTime });
+  showToast(`✅ Accepted · ${frozenTime}s · ${cps} CPS`, "var(--accent)");
+  showVictoryAnimation({ time: frozenTime, cps, best: bestTime, isNewBest });
 }
 
 /* =========================
@@ -767,11 +803,14 @@ if (runBtn) {
 }
 
 if (restartBtn) {
-  // FIX: replaced confirm() (blocked in iframes) with a two-click confirm pattern
   restartBtn.addEventListener("click", () => {
     if (restartBtn.dataset.confirm === "1") {
       restartBtn.dataset.confirm = "";
       restartBtn.textContent = "↺ Restart";
+
+      // FIX (Bug 2): bump generation — any in-flight runCode() will see
+      // sessionGen !== myGen and bail out without touching state
+      sessionGen++;
 
       clearInterval(timerInterval);
       startTime        = null;
@@ -829,7 +868,6 @@ document.querySelectorAll(".logo-clickable").forEach((el) => {
 
 /* =========================
    ACCENT COLOR
-   FIX: was defined twice — removed duplicate, kept single instance
 ========================= */
 (function initAccentColor() {
   const saved = localStorage.getItem("compileRaceAccent");

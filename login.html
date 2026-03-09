@@ -59,7 +59,12 @@
 
       <div class="row-bottom">
         <span class="tiny">No account?</span>
-        <!-- FIX: "Skip for now" now respects the ?next= param so users land on the right page -->
+        <!--
+          FIX (Bug 3): href is set by login.js AFTER isSafeRedirect() is defined.
+          The old inline fixSkipLink() script ran before login.js loaded, so
+          isSafeRedirect() didn't exist yet — meaning ?next= was set with NO
+          origin check, allowing open-redirect attacks. Now login.js handles it.
+        -->
         <a class="link" id="skipLink" href="index.html">Skip for now →</a>
       </div>
 
@@ -73,17 +78,8 @@
   </section>
 </main>
 
-<script>
-  // FIX: make "Skip for now" go to the correct ?next= destination
-  (function fixSkipLink() {
-    const params = new URLSearchParams(location.search);
-    const next   = params.get("next");
-    if (next) {
-      const skip = document.getElementById("skipLink");
-      if (skip) skip.href = decodeURIComponent(next);
-    }
-  })();
-</script>
+<!-- FIX (Bug 3): No inline script. login.js sets the skip link safely. -->
 <script src="login.js"></script>
+
 </body>
 </html>
